@@ -3,64 +3,35 @@ import sqlite3
 import logging
 import os
 import time
-import signal
-import sys
 import requests
 from telebot import types
 from datetime import datetime
 from threading import Lock, Thread
 from dotenv import load_dotenv
-from functools import wraps
 
 # ================= CONFIG =================
 load_dotenv()
 
-class SecurityConfig:
-    def __init__(self):
-        self.API_TOKEN = os.getenv("BOT_TOKEN")
-        self.ADMIN_ID = int(os.getenv("ADMIN_ID", "2010030869"))
-        self.BOT_USERNAME = os.getenv("BOT_USERNAME", "stars_sovga_gifbot")
-        
-        if not self.API_TOKEN:
-            raise ValueError("❌ TOKEN topilmadi!")
+API_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "2010030869"))
+BOT_USERNAME = os.getenv("BOT_USERNAME", "stars_sovga_gifbot")
 
-try:
-    config = SecurityConfig()
-except ValueError as e:
-    print(e)
+if not API_TOKEN:
+    print("❌ TOKEN topilmadi!")
     exit(1)
 
-# ================= OBUNA TEKSHIRISH =================
+# Kanal va guruh
 REQUIRED_CHANNELS = [
-    {
-        "id": -1003737363661,
-        "username": "@Tekin_stars_yulduz",
-        "url": "https://t.me/Tekin_stars_yulduz",
-        "name": "📢 KANAL"
-    },
-    {
-        "id": -1002449896845,
-        "username": "@Stars_2_odam_1stars",
-        "url": "https://t.me/Stars_2_odam_1stars",
-        "name": "👥 GURUH"
-    }
+    {"id": -1003737363661, "username": "@Tekin_stars_yulduz", "url": "https://t.me/Tekin_stars_yulduz", "name": "📢 KANAL"},
+    {"id": -1002449896845, "username": "@Stars_2_odam_1stars", "url": "https://t.me/Stars_2_odam_1stars", "name": "👥 GURUH"}
 ]
+GROUP_ID = -1002449896845  # Sovg'a e'loni shu guruhga yuboriladi
 
-GROUP_ID = -1002449896845  # Guruh ID
-
-# ================= BOT INIT (THREADED=FALSE) =================
-bot = telebot.TeleBot(
-    config.API_TOKEN, 
-    parse_mode="HTML", 
-    threaded=False  # MUHIM: False bo'lishi kerak
-)
+# ================= BOT =================
+bot = telebot.TeleBot(API_TOKEN, parse_mode="HTML", threaded=False)
 
 # ================= LOGGING =================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("BOT")
 
 # ================= DATABASE =================
@@ -82,17 +53,13 @@ class DB:
                 invites INTEGER DEFAULT 0,
                 stars INTEGER DEFAULT 0,
                 vip INTEGER DEFAULT 0,
-                is_banned INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                is_banned INTEGER DEFAULT 0
             );
-            
             CREATE TABLE IF NOT EXISTS invite_history(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 inviter_id INTEGER,
                 invited_id INTEGER,
-                invited_username TEXT,
                 invited_name TEXT,
-                group_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """)
@@ -100,34 +67,21 @@ class DB:
 
     def create_user(self, uid, username, name):
         with lock:
-            self.cur.execute(
-                "INSERT OR IGNORE INTO users(user_id, username, first_name) VALUES(?,?,?)",
-                (uid, username, name)
-            )
+            self.cur.execute("INSERT OR IGNORE INTO users(user_id, username, first_name) VALUES(?,?,?)", 
+                           (uid, username, name))
             self.conn.commit()
-
-    def user_exists(self, uid):
-        with lock:
-            self.cur.execute("SELECT COUNT(*) FROM users WHERE user_id=?", (uid,))
-            return self.cur.fetchone()[0] > 0
 
     def get(self, uid):
         with lock:
-            self.cur.execute(
-                "SELECT invites, stars, vip FROM users WHERE user_id=?", 
-                (uid,)
-            )
+            self.cur.execute("SELECT invites, stars, vip FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
-            return (row[0], row[1], row[2]) if row else (0, 0, 0)
+            if row:
+                return row[0], row[1], row[2]
+            return 0, 0, 0
 
     def add_invite(self, uid):
         with lock:
-            self.cur.execute(
-                "UPDATE users SET invites = invites + 1 WHERE user_id=?", 
-                (uid,)
-            )
-            self.conn.commit()
-            # Yulduzlarni qayta hisoblash
+            self.cur.execute("UPDATE users SET invites = invites + 1 WHERE user_id=?", (uid,))
             self.cur.execute("SELECT invites FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
             invites = row[0] if row else 0
@@ -136,34 +90,58 @@ class DB:
             self.conn.commit()
             return invites, stars
 
-    def add_invite_history(self, inviter_id, invited_id, invited_username, invited_name, group_id):
+    def add_history(self, inviter_id, invited_id, invited_name):
         with lock:
-            self.cur.execute("""
-                INSERT INTO invite_history(inviter_id, invited_id, invited_username, invited_name, group_id)
-                VALUES(?,?,?,?,?)
-            """, (inviter_id, invited_id, invited_username, invited_name, group_id))
+            self.cur.execute("INSERT INTO invite_history(inviter_id, invited_id, invited_name) VALUES(?,?,?)", 
+                           (inviter_id, invited_id, invited_name))
             self.conn.commit()
 
-    def check_duplicate(self, inviter_id, invited_id, group_id):
+    def check_duplicate(self, inviter_id, invited_id):
         with lock:
-            self.cur.execute("""
-                SELECT COUNT(*) FROM invite_history 
-                WHERE inviter_id=? AND invited_id=? AND group_id=?
-            """, (inviter_id, invited_id, group_id))
+            self.cur.execute("SELECT COUNT(*) FROM invite_history WHERE inviter_id=? AND invited_id=?", 
+                           (inviter_id, invited_id))
             return self.cur.fetchone()[0] > 0
 
     def sub_star(self, uid, amount):
         with lock:
-            self.cur.execute(
-                "UPDATE users SET stars = MAX(0, stars - ?) WHERE user_id=?", 
-                (amount, uid)
-            )
+            self.cur.execute("SELECT stars FROM users WHERE user_id=?", (uid,))
+            row = self.cur.fetchone()
+            current = row[0] if row else 0
+            new_stars = max(0, current - amount)
+            self.cur.execute("UPDATE users SET stars=? WHERE user_id=?", (new_stars, uid))
             self.conn.commit()
+            return new_stars
+
+    def add_stars_admin(self, uid, amount):
+        """Admin tomonidan yulduz qo'shish"""
+        with lock:
+            self.cur.execute("SELECT invites FROM users WHERE user_id=?", (uid,))
+            row = self.cur.fetchone()
+            current_invites = row[0] if row else 0
+            # Har 1 yulduz = 2 ta taklif
+            new_invites = current_invites + (amount * 2)
+            new_stars = new_invites // 2
+            self.cur.execute("UPDATE users SET invites=?, stars=? WHERE user_id=?", 
+                           (new_invites, new_stars, uid))
+            self.conn.commit()
+            return new_stars
 
     def grant_vip(self, uid):
         with lock:
-            self.cur.execute("UPDATE users SET vip = 1 WHERE user_id=?", (uid,))
+            self.cur.execute("UPDATE users SET vip=1 WHERE user_id=?", (uid,))
             self.conn.commit()
+
+    def get_top(self, limit=10):
+        with lock:
+            self.cur.execute("SELECT username, first_name, invites, stars FROM users WHERE is_banned=0 ORDER BY invites DESC LIMIT ?", 
+                           (limit,))
+            return self.cur.fetchall()
+
+    def get_history(self, uid):
+        with lock:
+            self.cur.execute("SELECT invited_id, invited_name, created_at FROM invite_history WHERE inviter_id=? ORDER BY created_at DESC LIMIT 20", 
+                           (uid,))
+            return self.cur.fetchall()
 
     def check_ban(self, uid):
         with lock:
@@ -173,73 +151,81 @@ class DB:
 
     def ban_user(self, uid):
         with lock:
-            self.cur.execute("UPDATE users SET is_banned = 1 WHERE user_id=?", (uid,))
+            self.cur.execute("UPDATE users SET is_banned=1 WHERE user_id=?", (uid,))
             self.conn.commit()
 
     def unban_user(self, uid):
         with lock:
-            self.cur.execute("UPDATE users SET is_banned = 0 WHERE user_id=?", (uid,))
+            self.cur.execute("UPDATE users SET is_banned=0 WHERE user_id=?", (uid,))
             self.conn.commit()
+
+    def search_user(self, query):
+        with lock:
+            self.cur.execute("SELECT user_id, username, first_name, invites, stars FROM users WHERE user_id=? OR username LIKE ? OR first_name LIKE ?",
+                           (query, f"%{query}%", f"%{query}%"))
+            return self.cur.fetchall()
 
     def get_stats(self):
         with lock:
             stats = {}
             self.cur.execute("SELECT COUNT(*) FROM users")
-            stats["total_users"] = self.cur.fetchone()[0]
+            stats["users"] = self.cur.fetchone()[0]
             self.cur.execute("SELECT SUM(invites) FROM users")
-            stats["total_invites"] = self.cur.fetchone()[0] or 0
+            stats["invites"] = self.cur.fetchone()[0] or 0
             self.cur.execute("SELECT SUM(stars) FROM users")
-            stats["total_stars"] = self.cur.fetchone()[0] or 0
-            self.cur.execute("SELECT COUNT(*) FROM users WHERE vip = 1")
-            stats["vip_users"] = self.cur.fetchone()[0]
+            stats["stars"] = self.cur.fetchone()[0] or 0
+            self.cur.execute("SELECT COUNT(*) FROM users WHERE vip=1")
+            stats["vip"] = self.cur.fetchone()[0]
             return stats
-
-    def get_top(self, limit=10):
-        with lock:
-            self.cur.execute("""
-                SELECT username, first_name, invites, stars
-                FROM users WHERE is_banned = 0 
-                ORDER BY invites DESC LIMIT ?
-            """, (limit,))
-            return self.cur.fetchall()
-
-    def get_user_invites(self, uid):
-        with lock:
-            self.cur.execute("""
-                SELECT invited_id, invited_username, invited_name, created_at
-                FROM invite_history WHERE inviter_id=?
-                ORDER BY created_at DESC LIMIT 20
-            """, (uid,))
-            return self.cur.fetchall()
 
 db = DB()
 
-# ================= OBUNA TEKSHIRISH =================
-def check_sub(uid):
-    not_subscribed = []
-    for channel in REQUIRED_CHANNELS:
-        try:
-            member = bot.get_chat_member(channel["id"], uid)
-            if member.status not in ['member', 'administrator', 'creator']:
-                not_subscribed.append(channel)
-        except:
-            not_subscribed.append(channel)
-    return not_subscribed
-
-def check_all_subs(uid):
-    return len(check_sub(uid)) == 0
-
 # ================= SHOP =================
-SHOP_ITEMS = {
-    15: {"name": "❤️ Heart Gift", "emoji": "❤️", "photo": "https://i.imgur.com/8Yp9Z2M.jpg", "desc": "Yurak sovg'a"},
+SHOP = {
+    15: {"name": "❤️ Heart Gift", "emoji": "❤️", "photo": "https://i.imgur.com/8Yp9Z2M.jpg", "desc": "Chiroyli yurak sovg'asi"},
     25: {"name": "🎁 Gift Box", "emoji": "🎁", "photo": "https://i.imgur.com/3vX9pLm.jpg", "desc": "Sovg'a qutisi"},
     50: {"name": "🎂 Birthday Cake", "emoji": "🎂", "photo": "https://i.imgur.com/9pL2mNx.jpg", "desc": "Tort + VIP"},
-    100: {"name": "🏆 Golden Trophy", "emoji": "🏆", "photo": "https://i.imgur.com/vL9pQmN.jpg", "desc": "Kubok + VIP"},
+    100: {"name": "🏆 Golden Trophy", "emoji": "🏆", "photo": "https://i.imgur.com/vL9pQmN.jpg", "desc": "Oltin kubok + VIP"},
+    200: {"name": "💎 Diamond", "emoji": "💎", "photo": "https://i.imgur.com/kP8mNxZ.jpg", "desc": "Olmos + VIP"},
+    500: {"name": "👑 Crown", "emoji": "👑", "photo": "https://i.imgur.com/XkP5vRt.jpg", "desc": "Toj + VIP"},
 }
 
-# ================= MENU =================
-def menu(uid, chat_id):
+# ================= OBUNA =================
+def check_sub(uid):
+    not_sub = []
+    for ch in REQUIRED_CHANNELS:
+        try:
+            member = bot.get_chat_member(ch["id"], uid)
+            if member.status not in ['member', 'administrator', 'creator']:
+                not_sub.append(ch)
+        except:
+            pass
+    return not_sub
+
+# ================= START =================
+@bot.message_handler(commands=["start"])
+def start(m):
+    uid = m.from_user.id
+    
+    if db.check_ban(uid):
+        return bot.send_message(m.chat.id, "❌ Bloklangansiz!")
+    
+    not_sub = check_sub(uid)
+    if not_sub:
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for ch in not_sub:
+            markup.add(types.InlineKeyboardButton(f"{ch['name']} - OBUNA", url=ch['url']))
+        markup.add(types.InlineKeyboardButton("✅ OBUNA BO'LDIM", callback_data="check_sub"))
+        channels = "\n".join([f"• {ch['name']}: {ch['username']}" for ch in not_sub])
+        return bot.send_message(m.chat.id, f"❌ Obuna bo'ling:\n\n{channels}", reply_markup=markup)
+    
+    db.create_user(uid, m.from_user.username, m.from_user.first_name)
     invites, stars, vip = db.get(uid)
+    
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("🛒 Sovg'alar Do'koni", callback_data="shop"))
+    markup.add(types.InlineKeyboardButton("🏆 Top", callback_data="top"))
+    markup.add(types.InlineKeyboardButton("📊 Takliflarim", callback_data="history"))
     
     text = f"""
 🌟 <b>REFERRAL SYSTEM</b>
@@ -247,274 +233,294 @@ def menu(uid, chat_id):
 👤 Holatingiz:
 👥 Takliflar: <b>{invites}</b> ta
 ⭐ Yulduzlar: <b>{stars}</b>
-👑 VIP: <b>{"✅ HA" if vip else "❌ YO'Q"}</b>
+👑 VIP: <b>{'✅ HA' if vip else '❌ YO\'Q'}</b>
 
 🎯 <i>Guruhga 2 ta odam qo'shing = 1 yulduz</i>
 """
-    m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(types.InlineKeyboardButton("🛒 Sovg'alar Do'koni", callback_data="shop"))
-    m.add(types.InlineKeyboardButton("🏆 Top", callback_data="top"))
-    m.add(types.InlineKeyboardButton("📊 Takliflarim", callback_data="history"))
-    bot.send_message(chat_id, text, reply_markup=m)
-
-def shop_menu(chat_id, uid):
-    _, stars, _ = db.get(uid)
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for price, item in sorted(SHOP_ITEMS.items()):
-        markup.add(types.InlineKeyboardButton(f"{item['emoji']} {price}⭐", callback_data=f"buy_{price}"))
-    text = f"🎁 <b>DO'KON</b>\n⭐ Balans: <b>{stars}</b>"
-    bot.send_message(chat_id, text, reply_markup=markup)
-
-# ================= CALLBACK =================
-@bot.callback_query_handler(func=lambda c: True)
-def callback_handler(call):
-    uid = call.from_user.id
-    data = call.data
-    
-    try:
-        if data == "shop":
-            shop_menu(call.message.chat.id, uid)
-        elif data == "top":
-            top = db.get_top(10)
-            if top:
-                text = "🏆 <b>TOP</b>\n\n"
-                for i, (u, n, inv, st) in enumerate(top, 1):
-                    user = f"@{u}" if u else n
-                    text += f"{i}. <b>{user}</b> — 👥{inv} ⭐{st}\n"
-                bot.send_message(call.message.chat.id, text)
-            else:
-                bot.send_message(call.message.chat.id, "❌ Hali hech kim yo'q!")
-        elif data == "history":
-            history = db.get_user_invites(uid)
-            if history:
-                text = "📊 <b>TAKLIFLAR</b>\n\n"
-                for i, (iid, un, nm, dt) in enumerate(history, 1):
-                    user = f"@{un}" if un else nm
-                    text += f"{i}. {user} - {dt}\n"
-                bot.send_message(call.message.chat.id, text)
-            else:
-                bot.send_message(call.message.chat.id, "❌ Hali taklif yo'q!")
-        elif data.startswith("buy_"):
-            price = int(data.split("_")[1])
-            _, stars, _ = db.get(uid)
-            if stars >= price:
-                db.sub_star(uid, price)
-                if price >= 50:
-                    db.grant_vip(uid)
-                item = SHOP_ITEMS[price]
-                _, new_stars, _ = db.get(uid)
-                bot.send_photo(call.message.chat.id, item['photo'], 
-                    caption=f"🎉 <b>{item['name']}</b>\n💰 Sarflandi: {price}⭐\n⭐ Qoldi: {new_stars}")
-            else:
-                bot.answer_callback_query(call.id, "❌ Yulduz yetarli emas!", show_alert=True)
-        elif data == "check_sub":
-            if check_all_subs(uid):
-                db.create_user(uid, call.from_user.username, call.from_user.first_name)
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                menu(uid, call.message.chat.id)
-            else:
-                bot.answer_callback_query(call.id, "❌ Obuna bo'ling!", show_alert=True)
-    except Exception as e:
-        logger.error(f"Callback xato: {e}")
-    
-    bot.answer_callback_query(call.id)
+    bot.send_message(m.chat.id, text, reply_markup=markup)
 
 # ================= GURUHGA QO'SHISH =================
 @bot.message_handler(content_types=['new_chat_members'])
-def handle_new_members(message):
-    """Guruhga odam qo'shilganda - BARCHA USULLAR"""
-    
-    # FAQAT BELGILANGAN GURUHDA ISHLASH
+def new_members(message):
     if message.chat.id != GROUP_ID:
         return
     
-    new_members = message.new_chat_members
-    inviter_id = message.from_user.id
-    
-    for new_member in new_members:
-        # Botlarni hisoblamaslik
-        if new_member.is_bot:
+    for member in message.new_chat_members:
+        if member.is_bot:
             continue
         
-        invited_id = new_member.id
+        inviter_id = message.from_user.id
+        invited_id = member.id
         
-        # O'zini qo'shsa hisoblanmaydi
         if inviter_id == invited_id:
             continue
         
-        # Takroriy tekshirish
-        if db.check_duplicate(inviter_id, invited_id, message.chat.id):
+        if db.check_duplicate(inviter_id, invited_id):
             continue
         
+        db.create_user(inviter_id, message.from_user.username, message.from_user.first_name)
+        db.create_user(invited_id, member.username, member.first_name)
+        db.add_history(inviter_id, invited_id, member.first_name)
+        invites, stars = db.add_invite(inviter_id)
+        
         try:
-            # Foydalanuvchilarni yaratish
-            db.create_user(inviter_id, message.from_user.username, message.from_user.first_name)
-            db.create_user(invited_id, new_member.username, new_member.first_name)
-            
-            # Tarixga yozish
-            db.add_invite_history(inviter_id, invited_id, new_member.username, new_member.first_name, message.chat.id)
-            
-            # +1 taklif
-            invites, stars = db.add_invite(inviter_id)
-            
-            # Guruhga xabar
+            bot.send_message(
+                message.chat.id,
+                f"🎉 <b>{member.first_name}</b> guruhga qo'shildi!\n"
+                f"👤 Taklif qilgan: {message.from_user.first_name}\n"
+                f"⭐ +1 taklif (Jami: {invites} ta, {stars} yulduz)"
+            )
+        except:
+            pass
+        
+        try:
+            bot.send_message(inviter_id, f"✅ {member.first_name} qo'shildi!\n👥 Taklif: {invites}\n⭐ Yulduz: {stars}")
+        except:
+            pass
+
+# ================= CALLBACK =================
+@bot.callback_query_handler(func=lambda c: True)
+def callback(call):
+    uid = call.from_user.id
+    data = call.data
+    
+    if data == "check_sub":
+        not_sub = check_sub(uid)
+        if not_sub:
+            channels = "\n".join([f"• {ch['name']}" for ch in not_sub])
+            bot.answer_callback_query(call.id, f"❌ Obuna bo'ling!\n{channels}", show_alert=True)
+        else:
+            db.create_user(uid, call.from_user.username, call.from_user.first_name)
             try:
-                bot.send_message(
-                    message.chat.id,
-                    f"🎉 <b>{new_member.first_name}</b> guruhga qo'shildi!\n"
-                    f"👥 Taklif qilgan: <b>{message.from_user.first_name}</b>\n"
-                    f"⭐ +1 taklif (Jami: {invites} ta, {stars} yulduz)",
-                    parse_mode="HTML"
-                )
+                bot.delete_message(call.message.chat.id, call.message.message_id)
             except:
                 pass
-            
-            # Taklif qiluvchiga xabar
-            try:
-                bot.send_message(
-                    inviter_id,
-                    f"🎉 <b>{new_member.first_name}</b> ni guruhga qo'shdingiz!\n"
-                    f"👥 Jami takliflar: {invites}\n"
-                    f"⭐ Yulduzlar: {stars}"
-                )
-            except:
-                pass
-                
-        except Exception as e:
-            logger.error(f"Taklif hisoblash xatosi: {e}")
-
-# ================= START =================
-@bot.message_handler(commands=["start"])
-def start(m):
-    try:
-        uid = m.from_user.id
-        
-        # Obuna tekshirish
-        if not check_all_subs(uid):
-            not_subscribed = check_sub(uid)
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            for ch in not_subscribed:
-                markup.add(types.InlineKeyboardButton(f"{ch['name']} - OBUNA", url=ch['url']))
-            markup.add(types.InlineKeyboardButton("✅ OBUNA BO'LDIM", callback_data="check_sub"))
-            
-            channels_list = "\n".join([f"• {ch['name']}: {ch['username']}" for ch in not_subscribed])
-            return bot.send_message(m.chat.id, f"❌ Obuna bo'ling:\n\n{channels_list}", reply_markup=markup)
-        
-        # Foydalanuvchini yaratish
-        db.create_user(uid, m.from_user.username, m.from_user.first_name)
-        
-        # Menu
-        menu(uid, m.chat.id)
-        
-    except Exception as e:
-        logger.error(f"Start xatosi: {e}")
-        bot.send_message(m.chat.id, "❌ Xatolik! Qayta urinib ko'ring.")
-
-# ================= ADMIN =================
-@bot.message_handler(commands=['admin'])
-def admin_cmd(message):
-    if message.from_user.id != config.ADMIN_ID:
+            bot.answer_callback_query(call.id, "✅ Tasdiqlandi!", show_alert=False)
+            start(call.message)
         return
+    
+    if data == "shop":
+        invites, stars, vip = db.get(uid)
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        for price, item in SHOP.items():
+            markup.add(types.InlineKeyboardButton(f"{item['emoji']} {price}⭐", callback_data=f"buy_{price}"))
+        text = f"🎁 <b>DO'KON</b>\n\n⭐ Balans: <b>{stars}</b>\n👥 Taklif: {invites}\n\nKerakli sovg'ani tanlang:"
+        bot.send_message(call.message.chat.id, text, reply_markup=markup)
+    
+    elif data == "top":
+        top = db.get_top(10)
+        if top:
+            text = "🏆 <b>TOP TAKLIFCHILAR</b>\n\n"
+            for i, (u, n, inv, st) in enumerate(top, 1):
+                user = f"@{u}" if u else n
+                medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"{i}️⃣"
+                text += f"{medal} <b>{user}</b> — 👥{inv} ⭐{st}\n"
+            bot.send_message(call.message.chat.id, text)
+        else:
+            bot.send_message(call.message.chat.id, "❌ Hali hech kim yo'q!")
+    
+    elif data == "history":
+        history = db.get_history(uid)
+        if history:
+            text = "📊 <b>TAKLIFLAR TARIXI</b>\n\n"
+            for i, (iid, name, dt) in enumerate(history, 1):
+                text += f"{i}. {name}\n   📅 {dt}\n\n"
+            bot.send_message(call.message.chat.id, text)
+        else:
+            bot.send_message(call.message.chat.id, "❌ Hali taklif yo'q!")
+    
+    elif data.startswith("buy_"):
+        price = int(data.split("_")[1])
+        invites, stars, vip = db.get(uid)
+        
+        if stars < price:
+            bot.answer_callback_query(call.id, f"❌ Yetarli yulduz yo'q!\nSizda: {stars}⭐\nKerak: {price}⭐", show_alert=True)
+        else:
+            item = SHOP[price]
+            new_stars = db.sub_star(uid, price)
+            
+            extra = ""
+            if price >= 50:
+                db.grant_vip(uid)
+                extra = "\n\n👑 <b>VIP</b> statusi berildi!"
+            
+            caption = f"""
+✅ <b>Sovg'a yetkazildi!</b>
+
+{item['emoji']} <b>{item['name']}</b>
+{item['desc']}
+
+💰 Sarflandi: <b>{price}⭐</b>
+⭐ Qoldi: <b>{new_stars}</b>{extra}
+"""
+            bot.send_photo(call.message.chat.id, item['photo'], caption=caption)
+            bot.answer_callback_query(call.id, "✅ Yetkazildi!", show_alert=True)
+            
+            # ========== GURUHGA E'LON ==========
+            user = call.from_user
+            group_text = f"""
+🛍 <b>YANGI SOVG'A!</b>
+
+👤 <b>{user.first_name}</b> sovg'a oldi!
+🎁 {item['emoji']} <b>{item['name']}</b>
+💰 Narxi: <b>{price}⭐</b>
+
+<i>@{BOT_USERNAME} orqali</i>
+"""
+            try:
+                bot.send_message(GROUP_ID, group_text)
+            except:
+                pass
+            
+            # Admin xabari
+            try:
+                admin_text = f"""
+🛍 <b>SOVG'A SOTILDI!</b>
+
+👤 {user.first_name}
+🆔 <code>{uid}</code>
+📛 @{user.username if user.username else 'yo\'q'}
+🎁 {item['name']} ({price}⭐)
+⭐ Qoldi: {new_stars}
+"""
+                bot.send_message(ADMIN_ID, admin_text)
+            except:
+                pass
+    
+    bot.answer_callback_query(call.id)
+
+# ================= ADMIN BUYRUQLARI =================
+@bot.message_handler(commands=["admin"])
+def admin_cmd(m):
+    if m.from_user.id != ADMIN_ID:
+        return bot.reply_to(m, "❌ Ruxsat yo'q!")
+    
     stats = db.get_stats()
     text = f"""
-🔐 <b>ADMIN</b>
-👥 Users: {stats['total_users']}
-👥 Invites: {stats['total_invites']}
-⭐ Stars: {stats['total_stars']}
-👑 VIP: {stats['vip_users']}
+🔐 <b>ADMIN PANEL</b>
+
+📊 <b>Statistika:</b>
+👥 Foydalanuvchilar: {stats['users']}
+👥 Jami takliflar: {stats['invites']}
+⭐ Jami yulduzlar: {stats['stars']}
+👑 VIP: {stats['vip']}
+
+⚙️ <b>Buyruqlar:</b>
+/addstars [id] [miqdor] - Yulduz berish
+/ban [id] - Ban qilish
+/unban [id] - Bandan chiqarish
+/search [id/username] - Qidirish
+/stats - Statistika
 """
-    bot.send_message(message.chat.id, text)
+    bot.send_message(m.chat.id, text)
 
-@bot.message_handler(commands=['ban'])
-def ban_cmd(message):
-    if message.from_user.id != config.ADMIN_ID:
-        return
+@bot.message_handler(commands=["addstars"])
+def addstars_cmd(m):
+    """Admin birovga yulduz berish"""
+    if m.from_user.id != ADMIN_ID:
+        return bot.reply_to(m, "❌ Ruxsat yo'q!")
+    
     try:
-        uid = int(message.text.split()[1])
+        parts = m.text.split()
+        uid = int(parts[1])
+        amount = int(parts[2])
+        
+        # Foydalanuvchini yaratish
+        db.create_user(uid, None, "Foydalanuvchi")
+        
+        # Yulduz qo'shish
+        new_stars = db.add_stars_admin(uid, amount)
+        
+        bot.reply_to(m, f"✅ Foydalanuvchi {uid} ga {amount}⭐ berildi!\nJami yulduzi: {new_stars}")
+        
+        # Foydalanuvchiga xabar
+        try:
+            bot.send_message(uid, f"🎉 Admin sizga {amount}⭐ berdi!\nJami: {new_stars}⭐")
+        except:
+            pass
+            
+    except Exception as e:
+        bot.reply_to(m, f"❌ Format: /addstars [user_id] [miqdor]\nMasalan: /addstars 123456 100\n\nXato: {e}")
+
+@bot.message_handler(commands=["ban"])
+def ban_cmd(m):
+    if m.from_user.id != ADMIN_ID:
+        return bot.reply_to(m, "❌ Ruxsat yo'q!")
+    try:
+        uid = int(m.text.split()[1])
         db.ban_user(uid)
-        bot.reply_to(message, f"✅ {uid} ban!")
+        bot.reply_to(m, f"✅ {uid} ban qilindi!")
     except:
-        bot.reply_to(message, "❌ /ban [id]")
+        bot.reply_to(m, "❌ /ban [user_id]")
 
-@bot.message_handler(commands=['unban'])
-def unban_cmd(message):
-    if message.from_user.id != config.ADMIN_ID:
-        return
+@bot.message_handler(commands=["unban"])
+def unban_cmd(m):
+    if m.from_user.id != ADMIN_ID:
+        return bot.reply_to(m, "❌ Ruxsat yo'q!")
     try:
-        uid = int(message.text.split()[1])
+        uid = int(m.text.split()[1])
         db.unban_user(uid)
-        bot.reply_to(message, f"✅ {uid} unban!")
+        bot.reply_to(m, f"✅ {uid} bandan chiqarildi!")
     except:
-        bot.reply_to(message, "❌ /unban [id]")
+        bot.reply_to(m, "❌ /unban [user_id]")
 
-@bot.message_handler(commands=['addstars'])
-def addstars_cmd(message):
-    if message.from_user.id != config.ADMIN_ID:
-        return
+@bot.message_handler(commands=["search"])
+def search_cmd(m):
+    if m.from_user.id != ADMIN_ID:
+        return bot.reply_to(m, "❌ Ruxsat yo'q!")
     try:
-        parts = message.text.split()
-        uid, amount = int(parts[1]), int(parts[2])
-        for _ in range(amount * 2):
-            db.add_invite(uid)
-        bot.reply_to(message, f"✅ +{amount}⭐")
+        query = m.text.split(maxsplit=1)[1]
+        results = db.search_user(query)
+        if results:
+            text = "🔍 <b>Qidiruv:</b>\n\n"
+            for uid, uname, name, inv, st in results[:10]:
+                user = f"@{uname}" if uname else name
+                text += f"🆔 {uid} | {user}\n👥 {inv} taklif | ⭐ {st} yulduz\n\n"
+            bot.reply_to(m, text)
+        else:
+            bot.reply_to(m, "❌ Topilmadi!")
     except:
-        bot.reply_to(message, "❌ /addstars [id] [miqdor]")
+        bot.reply_to(m, "❌ /search [id/username]")
 
-@bot.message_handler(commands=['stats'])
-def stats_cmd(message):
-    uid = message.from_user.id
+@bot.message_handler(commands=["stats"])
+def stats_cmd(m):
+    uid = m.from_user.id
     invites, stars, vip = db.get(uid)
-    bot.reply_to(message, f"👥 Taklif: {invites}\n⭐ Yulduz: {stars}\n👑 VIP: {'✅' if vip else '❌'}")
+    bot.reply_to(m, f"📊 <b>Statistika</b>\n\n👥 Taklif: {invites}\n⭐ Yulduz: {stars}\n👑 VIP: {'✅' if vip else '❌'}")
 
-@bot.message_handler(commands=['help'])
-def help_cmd(message):
-    bot.reply_to(message, """
+@bot.message_handler(commands=["help"])
+def help_cmd(m):
+    bot.reply_to(m, f"""
 🤖 <b>YORDAM</b>
+
+📌 <b>Buyruqlar:</b>
 /start - Boshlash
 /stats - Statistika
 /help - Yordam
-📢 @Stars_2_odam_1stars guruhga odam qo'shing!
-""")
 
-# ================= LEADERBOARD =================
-def leaderboard():
-    while True:
-        try:
-            top = db.get_top(10)
-            if top:
-                text = "🏆 <b>TOP TAKLIFCHILAR</b>\n\n"
-                for i, (u, n, inv, st) in enumerate(top, 1):
-                    user = f"@{u}" if u else n
-                    text += f"{i}. <b>{user}</b> — 👥{inv} ⭐{st}\n"
-                for ch in REQUIRED_CHANNELS:
-                    try:
-                        bot.send_message(ch["id"], text)
-                    except:
-                        pass
-        except Exception as e:
-            logger.error(f"Leaderboard: {e}")
-        time.sleep(300)
+👥 <b>Guruh:</b>
+@Stars_2_odam_1stars ga odam qo'shing
+Har 2 ta odam = 1⭐ yulduz
+
+🛍 <b>Do'kon:</b>
+Yulduzlar bilan sovg'a oling!
+""")
 
 # ================= MAIN =================
 if __name__ == "__main__":
     print("=" * 50)
     print("🚀 BOT ISHGA TUSHIRILDI")
-    print(f"👥 Guruh ID: {GROUP_ID}")
+    print(f"👥 Guruh: {GROUP_ID}")
+    print(f"🆔 Admin: {ADMIN_ID}")
     print("=" * 50)
     
     # Eski sessiyalarni tozalash
     try:
-        requests.get(f"https://api.telegram.org/bot{config.API_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
-        time.sleep(2)
-        requests.get(f"https://api.telegram.org/bot{config.API_TOKEN}/getUpdates?offset=-1", timeout=5)
-        print("✅ Tozalandi")
+        requests.get(f"https://api.telegram.org/bot{API_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
+        time.sleep(1)
     except:
         pass
     
-    # Leaderboard thread
-    Thread(target=leaderboard, daemon=True).start()
-    
-    # Bot polling
     while True:
         try:
             print("♻️ Bot ishlamoqda...")
@@ -524,8 +530,9 @@ if __name__ == "__main__":
             break
         except Exception as e:
             error = str(e)
-            print(f"❌ Xato: {error[:80]}")
             if "409" in error:
+                print("⚠️ 409 - qayta urinish...")
                 time.sleep(15)
             else:
+                print(f"❌ Xato: {error[:80]}")
                 time.sleep(5)
