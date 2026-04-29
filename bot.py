@@ -16,6 +16,7 @@ load_dotenv()
 API_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "2010030869"))
 BOT_USERNAME = os.getenv("BOT_USERNAME", "stars_sovga_gifbot")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "@Stars_5_odam_1stars")
 
 if not API_TOKEN:
     print("❌ TOKEN topilmadi!")
@@ -30,12 +31,14 @@ GROUP_ID = -1002449896845
 GROUP_LINK = "https://t.me/Stars_2_odam_1stars"
 DAILY_BONUS = 0.25
 
-# ================= REKLAMA =================
+# ================= REKLAMA VA MOTIVATSIYA =================
 ADS_BOT = "@zurnavolarbot"
 ADS_MESSAGES = [
     f"🎵 {ADS_BOT} - Eng zo'r musiqa boti!",
     f"🔥 {ADS_BOT} - Sevimli qo'shiqlaringiz!",
     f"🎶 {ADS_BOT} - Musiqa dunyosi!",
+    f"💃 {ADS_BOT} - Raqsga tushing!",
+    f"🎧 {ADS_BOT} - Hit qo'shiqlar!"
 ]
 
 MOTIVATIONS = [
@@ -44,6 +47,11 @@ MOTIVATIONS = [
     "⭐ Yulduzlar sizni kutmoqda!",
     "🚀 Oldinga, lider bo'ling!",
     "👑 Siz eng yaxshisisiz!",
+    "🎯 Maqsad sari intiling!",
+    "💎 Katta sovg'alar kutyapti!",
+    "🌟 Yulduzlar soni oshmoqda!",
+    "🏆 Chempion bo'ling!",
+    "⚡ Kuch sizda!"
 ]
 
 GIFT_ADS = [
@@ -53,8 +61,9 @@ GIFT_ADS = [
     {"emoji": "🎂", "name": "Tort", "desc": "Shirin sovg'a!", "photo": "https://i.imgur.com/9pL2mNx.jpg"},
 ]
 
-# ================= BOT =================
+# ================= BOT INIT =================
 bot = telebot.TeleBot(API_TOKEN, parse_mode="HTML", threaded=False)
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("BOT")
 
@@ -82,6 +91,7 @@ class DB:
                 last_ad TIMESTAMP,
                 daily_streak INTEGER DEFAULT 0,
                 total_spent REAL DEFAULT 0,
+                total_earned REAL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS invite_history(
@@ -89,12 +99,14 @@ class DB:
                 inviter_id INTEGER,
                 invited_id INTEGER,
                 invited_name TEXT,
+                source TEXT DEFAULT 'group',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS purchase_history(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 item_name TEXT,
+                item_emoji TEXT,
                 price REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -108,11 +120,11 @@ class DB:
 
     def get(self, uid):
         with lock:
-            self.cur.execute("SELECT invites, stars, vip, total_spent, last_daily, last_ad, daily_streak FROM users WHERE user_id=?", (uid,))
+            self.cur.execute("SELECT invites, stars, vip, total_spent, last_daily, last_ad, daily_streak, total_earned FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
             if row:
-                return {"invites": row[0] or 0, "stars": float(row[1] or 0), "vip": row[2] or 0, "spent": float(row[3] or 0), "last_daily": row[4], "last_ad": row[5], "streak": row[6] or 0}
-            return {"invites": 0, "stars": 0.0, "vip": 0, "spent": 0.0, "last_daily": None, "last_ad": None, "streak": 0}
+                return {"invites": row[0] or 0, "stars": float(row[1] or 0), "vip": row[2] or 0, "spent": float(row[3] or 0), "last_daily": row[4], "last_ad": row[5], "streak": row[6] or 0, "earned": float(row[7] or 0)}
+            return {"invites": 0, "stars": 0.0, "vip": 0, "spent": 0.0, "last_daily": None, "last_ad": None, "streak": 0, "earned": 0.0}
 
     def add_invite(self, uid):
         with lock:
@@ -121,18 +133,18 @@ class DB:
             row = self.cur.fetchone()
             invites = row[0] or 0
             stars = invites / 2.0
-            self.cur.execute("UPDATE users SET stars=? WHERE user_id=?", (stars, uid))
+            self.cur.execute("UPDATE users SET stars=?, total_earned=? WHERE user_id=?", (stars, stars, uid))
             self.conn.commit()
             return invites, stars
 
-    def add_history(self, inviter_id, invited_id, invited_name):
+    def add_history(self, inviter_id, invited_id, invited_name, source="group"):
         with lock:
-            self.cur.execute("INSERT INTO invite_history(inviter_id, invited_id, invited_name) VALUES(?,?,?)", (inviter_id, invited_id, invited_name))
+            self.cur.execute("INSERT INTO invite_history(inviter_id, invited_id, invited_name, source) VALUES(?,?,?,?)", (inviter_id, invited_id, invited_name, source))
             self.conn.commit()
 
-    def add_purchase_history(self, uid, item_name, price):
+    def add_purchase_history(self, uid, item_name, item_emoji, price):
         with lock:
-            self.cur.execute("INSERT INTO purchase_history(user_id, item_name, price) VALUES(?,?,?)", (uid, item_name, price))
+            self.cur.execute("INSERT INTO purchase_history(user_id, item_name, item_emoji, price) VALUES(?,?,?,?)", (uid, item_name, item_emoji, price))
             self.conn.commit()
 
     def check_duplicate(self, inviter_id, invited_id):
@@ -157,24 +169,25 @@ class DB:
             ci = row[0] or 0
             ni = ci + int(amount * 2)
             ns = ni / 2.0
-            self.cur.execute("UPDATE users SET invites=?, stars=? WHERE user_id=?", (ni, ns, uid))
+            self.cur.execute("UPDATE users SET invites=?, stars=?, total_earned=? WHERE user_id=?", (ni, ns, ns, uid))
             self.conn.commit()
             return ns
 
     def give_daily_bonus(self, uid):
         with lock:
-            self.cur.execute("SELECT last_daily, stars, daily_streak FROM users WHERE user_id=?", (uid,))
+            self.cur.execute("SELECT last_daily, stars, daily_streak, total_earned FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
             if row:
                 last_daily = row[0]
                 cs = float(row[1] or 0)
                 streak = row[2] or 0
+                te = float(row[3] or 0)
                 now = datetime.now()
                 if last_daily:
                     try:
                         last = datetime.fromisoformat(last_daily)
                         if now.date() == last.date():
-                            return False, cs, 0, streak
+                            return False, cs, 0, streak, 0
                         if (now.date() - last.date()).days == 1:
                             streak += 1
                         else:
@@ -184,13 +197,16 @@ class DB:
                 else:
                     streak = 1
                 bonus = DAILY_BONUS
+                extra = 0
                 if streak > 0 and streak % 7 == 0:
-                    bonus += 0.5
+                    extra = 0.5
+                    bonus += extra
                 ns = cs + bonus
-                self.cur.execute("UPDATE users SET stars=?, last_daily=?, daily_streak=? WHERE user_id=?", (ns, now.isoformat(), streak, uid))
+                ne = te + bonus
+                self.cur.execute("UPDATE users SET stars=?, last_daily=?, daily_streak=?, total_earned=? WHERE user_id=?", (ns, now.isoformat(), streak, ne, uid))
                 self.conn.commit()
-                return True, ns, bonus, streak
-            return False, 0.0, 0, 0
+                return True, ns, bonus, streak, extra
+            return False, 0.0, 0, 0, 0
 
     def can_send_ad(self, uid, hours=48):
         with lock:
@@ -217,17 +233,22 @@ class DB:
 
     def get_top(self, limit=10):
         with lock:
-            self.cur.execute("SELECT username, first_name, invites, stars, vip FROM users WHERE is_banned=0 ORDER BY invites DESC LIMIT ?", (limit,))
+            self.cur.execute("SELECT username, first_name, invites, stars, vip, daily_streak FROM users WHERE is_banned=0 ORDER BY invites DESC LIMIT ?", (limit,))
+            return self.cur.fetchall()
+
+    def get_top_streak(self, limit=10):
+        with lock:
+            self.cur.execute("SELECT username, first_name, daily_streak, stars FROM users WHERE is_banned=0 AND daily_streak>0 ORDER BY daily_streak DESC LIMIT ?", (limit,))
             return self.cur.fetchall()
 
     def get_history(self, uid):
         with lock:
-            self.cur.execute("SELECT invited_id, invited_name, created_at FROM invite_history WHERE inviter_id=? ORDER BY created_at DESC LIMIT 20", (uid,))
+            self.cur.execute("SELECT invited_id, invited_name, source, created_at FROM invite_history WHERE inviter_id=? ORDER BY created_at DESC LIMIT 10", (uid,))
             return self.cur.fetchall()
 
     def get_purchase_history(self, uid):
         with lock:
-            self.cur.execute("SELECT item_name, price, created_at FROM purchase_history WHERE user_id=? ORDER BY created_at DESC LIMIT 10", (uid,))
+            self.cur.execute("SELECT item_name, item_emoji, price, created_at FROM purchase_history WHERE user_id=? ORDER BY created_at DESC LIMIT 10", (uid,))
             return self.cur.fetchall()
 
     def check_ban(self, uid):
@@ -248,23 +269,27 @@ class DB:
 
     def search_user(self, query):
         with lock:
-            self.cur.execute("SELECT user_id, username, first_name, invites, stars, vip FROM users WHERE user_id=? OR username LIKE ? OR first_name LIKE ?", (query, f"%{query}%", f"%{query}%"))
+            self.cur.execute("SELECT user_id, username, first_name, invites, stars, vip, daily_streak FROM users WHERE user_id=? OR username LIKE ? OR first_name LIKE ?", (query, f"%{query}%", f"%{query}%"))
             return self.cur.fetchall()
 
     def get_stats(self):
         with lock:
-            stats = {}
+            s = {}
             self.cur.execute("SELECT COUNT(*) FROM users")
-            stats["users"] = self.cur.fetchone()[0]
+            s["users"] = self.cur.fetchone()[0]
             self.cur.execute("SELECT SUM(invites) FROM users")
-            stats["invites"] = self.cur.fetchone()[0] or 0
+            s["invites"] = self.cur.fetchone()[0] or 0
             self.cur.execute("SELECT SUM(stars) FROM users")
-            stats["stars"] = float(self.cur.fetchone()[0] or 0)
+            s["stars"] = float(self.cur.fetchone()[0] or 0)
             self.cur.execute("SELECT COUNT(*) FROM users WHERE vip=1")
-            stats["vip"] = self.cur.fetchone()[0]
+            s["vip"] = self.cur.fetchone()[0]
             self.cur.execute("SELECT SUM(total_spent) FROM users")
-            stats["spent"] = float(self.cur.fetchone()[0] or 0)
-            return stats
+            s["spent"] = float(self.cur.fetchone()[0] or 0)
+            self.cur.execute("SELECT COUNT(*) FROM invite_history")
+            s["total_invites"] = self.cur.fetchone()[0]
+            self.cur.execute("SELECT COUNT(*) FROM purchase_history")
+            s["purchases"] = self.cur.fetchone()[0]
+            return s
 
     def get_all_users_for_ad(self):
         with lock:
@@ -277,7 +302,7 @@ db = DB()
 SHOP = {
     15: {"name": "❤️ Heart Gift", "emoji": "❤️", "photo": "https://i.imgur.com/8Yp9Z2M.jpg", "desc": "Chiroyli yurak sovg'asi"},
     25: {"name": "🎁 Gift Box", "emoji": "🎁", "photo": "https://i.imgur.com/3vX9pLm.jpg", "desc": "Sirli sovg'a qutisi"},
-    50: {"name": "🎂 Birthday Cake", "emoji": "🎂", "photo": "https://i.imgur.com/9pL2mNx.jpg", "desc": "Tort + VIP"},
+    50: {"name": "🎂 Birthday Cake", "emoji": "🎂", "photo": "https://i.imgur.com/9pL2mNx.jpg", "desc": "Tug'ilgan kun torti + VIP"},
     100: {"name": "🏆 Golden Trophy", "emoji": "🏆", "photo": "https://i.imgur.com/vL9pQmN.jpg", "desc": "Oltin kubok + VIP"},
     200: {"name": "💎 Diamond", "emoji": "💎", "photo": "https://i.imgur.com/kP8mNxZ.jpg", "desc": "Olmos + VIP"},
     500: {"name": "👑 Crown", "emoji": "👑", "photo": "https://i.imgur.com/XkP5vRt.jpg", "desc": "Qirol toji + VIP"},
@@ -320,7 +345,7 @@ def start(m):
             ref = int(m.text.split()[1])
             if ref != uid and not db.check_duplicate(ref, uid):
                 db.create_user(ref, None, "User")
-                db.add_history(ref, uid, m.from_user.first_name)
+                db.add_history(ref, uid, m.from_user.first_name, "link")
                 inv, st = db.add_invite(ref)
                 try:
                     bot.send_message(ref, f"🎉 {m.from_user.first_name} qo'shildi!\n👥 Taklif: {inv}\n⭐ Yulduz: {format_stars(st)}")
@@ -346,6 +371,7 @@ def start(m):
     markup.add(types.InlineKeyboardButton("🛒 DO'KON", callback_data="shop"), types.InlineKeyboardButton(f"🎁 +{DAILY_BONUS}⭐ BONUS", callback_data="daily"))
     markup.add(types.InlineKeyboardButton("🏆 TOP", callback_data="top"), types.InlineKeyboardButton("📊 PROFIL", callback_data="profile"))
     markup.add(types.InlineKeyboardButton("🔗 LINK", callback_data="link"), types.InlineKeyboardButton("📜 XARIDLAR", callback_data="purchases"))
+    markup.add(types.InlineKeyboardButton("🔥 STREAK TOP", callback_data="streak_top"))
     
     text = f"""
 🌟 <b>STARS BOT</b> 🌟
@@ -374,10 +400,10 @@ def new_members(message):
             continue
         db.create_user(inviter_id, message.from_user.username, message.from_user.first_name)
         db.create_user(invited_id, member.username, member.first_name)
-        db.add_history(inviter_id, invited_id, member.first_name)
+        db.add_history(inviter_id, invited_id, member.first_name, "group")
         inv, st = db.add_invite(inviter_id)
         try:
-            bot.send_message(message.chat.id, f"🎉 <b>{member.first_name}</b> qo'shildi!\n👤 {message.from_user.first_name} +1⭐\n📊 Jami: {inv} ta, {format_stars(st)} yulduz")
+            bot.send_message(message.chat.id, f"🎉 <b>{member.first_name}</b> qo'shildi!\n👤 {message.from_user.first_name} +1\n📊 Jami: {inv} ta, {format_stars(st)}⭐")
         except:
             pass
         try:
@@ -406,12 +432,12 @@ def callback(call):
         return
     
     if data == "daily":
-        ok, ns, bonus, streak = db.give_daily_bonus(uid)
+        ok, ns, bonus, streak, extra = db.give_daily_bonus(uid)
         if ok:
-            extra = ""
-            if streak % 7 == 0 and streak > 0:
-                extra = "\n🎉 <b>HAFTALIK BONUS!</b> +0.5⭐"
-            text = f"🎁 <b>KUNLIK BONUS</b>\n\n✨ +{bonus}⭐ berildi!\n💰 Jami: <b>{format_stars(ns)}</b>\n🔥 Streak: <b>{streak}</b> kun{extra}\n\n🗓 Ertaga yana keling!"
+            extra_text = ""
+            if extra > 0:
+                extra_text = f"\n🎉 <b>HAFTALIK BONUS!</b> +{extra}⭐ qo'shimcha!"
+            text = f"🎁 <b>KUNLIK BONUS</b>\n\n✨ +{bonus}⭐ berildi!\n💰 Jami: <b>{format_stars(ns)}</b>\n🔥 Streak: <b>{streak}</b> kun{extra_text}\n\n🗓 Ertaga yana keling!"
             bot.send_message(call.message.chat.id, add_footer(text))
             bot.answer_callback_query(call.id, f"✅ +{bonus}⭐", show_alert=True)
         else:
@@ -431,19 +457,32 @@ def callback(call):
         top = db.get_top(10)
         if top:
             text = "🏆 <b>TOP 10</b>\n\n"
-            for i, (u, n, inv, st, v) in enumerate(top, 1):
+            for i, (u, n, inv, st, v, streak) in enumerate(top, 1):
                 user = f"@{u}" if u else n
                 medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"{i}️⃣"
                 vip_mark = " 👑" if v else ""
-                text += f"{medal} <b>{user}</b>{vip_mark}\n   👥 {inv} | ⭐ {format_stars(st)}\n\n"
+                text += f"{medal} <b>{user}</b>{vip_mark}\n   👥 {inv} | ⭐ {format_stars(st)} | 🔥{streak}\n\n"
             bot.send_message(call.message.chat.id, add_footer(text))
         else:
             bot.send_message(call.message.chat.id, "❌ Hali top yo'q!")
+    
+    elif data == "streak_top":
+        top = db.get_top_streak(10)
+        if top:
+            text = "🔥 <b>ENG UZOQ STREAK</b>\n\n"
+            for i, (u, n, streak, st) in enumerate(top, 1):
+                user = f"@{u}" if u else n
+                medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"{i}️⃣"
+                text += f"{medal} <b>{user}</b>\n   🔥 {streak} kun | ⭐ {format_stars(st)}\n\n"
+            bot.send_message(call.message.chat.id, add_footer(text))
+        else:
+            bot.send_message(call.message.chat.id, "❌ Hali streak yo'q!")
     
     elif data == "profile":
         u = db.get(uid)
         vip_status = "✅ HA" if u["vip"] else "❌ YO'Q"
         history = db.get_history(uid)[:5]
+        purchases = db.get_purchase_history(uid)[:3]
         
         text = f"""
 📊 <b>TO'LIQ PROFIL</b>
@@ -454,40 +493,42 @@ def callback(call):
 🔥 Streak: <b>{u['streak']}</b> kun
 
 ━━━━━━━━━━━━━━━━━━━━
+💰 <b>MOLIYA</b>
 👥 Takliflar: <b>{u['invites']}</b> ta
 ⭐ Yulduzlar: <b>{format_stars(u['stars'])}</b>
-💰 Sarflangan: {format_stars(u['spent'])}⭐
-━━━━━━━━━━━━━━━━━━━━
+💎 Topgan: <b>{format_stars(u['earned'])}</b>⭐
+💸 Sarflangan: <b>{format_stars(u['spent'])}</b>⭐
 
-📜 <b>Oxirgi takliflar:</b>
+📜 <b>OXIRGI TAKLIFLAR</b>
 """
         if history:
-            for iid, name, dt in history:
-                text += f"• {name} ({dt[:10]})\n"
+            for iid, name, source, dt in history:
+                icon = "🔗" if source == "link" else "👥"
+                text += f"{icon} {name} ({dt[:10]})\n"
         else:
             text += "Hali taklif yo'q\n"
         
-        text += f"""
-━━━━━━━━━━━━━━━━━━━━
-🎯 <b>QANDAY YULDUZ OLISH:</b>
-• Guruhga odam qo'shing
-• Do'stlaringizni taklif qiling
-• Har kuni bonus oling (+{DAILY_BONUS}⭐)
-• 7 kun ketma-ket = +0.5⭐
-"""
+        if purchases:
+            text += "\n🛍 <b>OXIRGI XARIDLAR</b>\n"
+            for name, emoji, price, dt in purchases:
+                text += f"{emoji} {name} - {format_stars(price)}⭐\n"
+        
         bot.send_message(call.message.chat.id, add_footer(text))
     
     elif data == "link":
         link = get_invite_link(uid)
-        text = f"🔗 <b>TAKLIF LINKI</b>\n\n<code>{link}</code>\n\n📤 Do'stlarga yuboring!\n👥 2 ta do'st = 1⭐\n📢 Guruh: {GROUP_LINK}"
+        text = f"🔗 <b>TAKLIF LINKI</b>\n\n<code>{link}</code>\n\n📤 Do'stlarga yuboring!\n👥 2 do'st = 1⭐\n📢 Guruh: {GROUP_LINK}"
         bot.send_message(call.message.chat.id, add_footer(text))
     
     elif data == "purchases":
         purchases = db.get_purchase_history(uid)
         if purchases:
             text = "📜 <b>XARIDLAR TARIXI</b>\n\n"
-            for name, price, dt in purchases:
-                text += f"🎁 {name} - {format_stars(price)}⭐ ({dt[:10]})\n"
+            total = 0
+            for name, emoji, price, dt in purchases:
+                text += f"{emoji} {name} - {format_stars(price)}⭐ ({dt[:10]})\n"
+                total += price
+            text += f"\n💰 Jami: <b>{format_stars(total)}</b>⭐"
         else:
             text = "❌ Hali xarid yo'q!\n\n🛒 Do'kondan sovg'a oling!"
         bot.send_message(call.message.chat.id, add_footer(text))
@@ -502,20 +543,67 @@ def callback(call):
         else:
             item = SHOP[price]
             ns = db.sub_star(uid, price)
-            db.add_purchase_history(uid, item['name'], price)
+            db.add_purchase_history(uid, item['name'], item['emoji'], price)
+            
             extra = ""
             if price >= 50:
                 db.grant_vip(uid)
                 extra = "\n\n👑 <b>VIP STATUS BERILDI!</b>"
-            caption = f"✅ <b>{item['emoji']} {item['name']}</b>\n📝 {item['desc']}\n\n💰 Sarflandi: <b>{price}⭐</b>\n⭐ Qoldi: <b>{format_stars(ns)}</b>{extra}"
-            bot.send_photo(call.message.chat.id, item['photo'], caption=add_footer(caption))
-            bot.answer_callback_query(call.id, "✅ Xarid qilindi!", show_alert=True)
+            
+            # Admin linki
+            admin_link = f"tg://user?id={ADMIN_ID}"
+            
+            caption = f"""
+✅ <b>SOVG'A BERILDI!</b> ✅
+
+{item['emoji']} <b>{item['name']}</b>
+📝 {item['desc']}
+
+💰 Sarflandi: <b>{price}⭐</b>
+⭐ Qoldi: <b>{format_stars(ns)}</b>{extra}
+
+{'─' * 20}
+📦 <b>HAQIQIY SOVG'A OLISH:</b>
+👤 Admin: <a href='{admin_link}'>{ADMIN_USERNAME}</a>
+
+<i>⏳ Admin haqiqiy sovg'ani yuboradi</i>
+<i>⚠️ Ozroq uzilishlar bo'lishi mumkin</i>
+
+📞 Murojaat uchun: <a href='{admin_link}'>ADMIN BILAN BOG'LANISH</a>
+"""
+            caption = add_footer(caption)
+            bot.send_photo(call.message.chat.id, item['photo'], caption=caption)
+            bot.answer_callback_query(call.id, "✅ Sovg'a berildi!", show_alert=True)
+            
+            # Guruhga e'lon
             try:
-                bot.send_message(GROUP_ID, f"🛍 <b>{call.from_user.first_name}</b> {item['emoji']} <b>{item['name']}</b> ({price}⭐)\n🔗 @{BOT_USERNAME}")
+                group_text = f"""
+🛍 <b>YANGI SOVG'A!</b>
+
+👤 <b>{call.from_user.first_name}</b>
+🎁 {item['emoji']} <b>{item['name']}</b>
+💰 {price}⭐ sarflandi
+
+📞 Murojaat: <a href='{admin_link}'>{ADMIN_USERNAME}</a>
+🔗 @{BOT_USERNAME}
+"""
+                bot.send_message(GROUP_ID, group_text)
             except:
                 pass
+            
+            # Admin xabari
             try:
-                bot.send_message(ADMIN_ID, f"🛍 {call.from_user.first_name} - {item['name']} ({price}⭐)")
+                admin_text = f"""
+🛍 <b>YANGI SOTUV!</b>
+
+👤 {call.from_user.first_name}
+🆔 <code>{uid}</code>
+📛 @{call.from_user.username if call.from_user.username else 'yoq'}
+🎁 {item['emoji']} {item['name']}
+💰 {price}⭐
+💎 Qoldi: {format_stars(ns)}⭐
+"""
+                bot.send_message(ADMIN_ID, admin_text)
             except:
                 pass
     
@@ -527,7 +615,18 @@ def admin_cmd(m):
     if m.from_user.id != ADMIN_ID:
         return
     s = db.get_stats()
-    text = f"🔐 <b>ADMIN PANEL</b>\n\n👥 Users: {s['users']}\n👥 Invites: {s['invites']}\n⭐ Stars: {format_stars(s['stars'])}\n👑 VIP: {s['vip']}\n💰 Spent: {format_stars(s['spent'])}⭐\n\n/addstars [id] [miqdor]\n/ban [id] | /unban [id]\n/search [id/username]\n/broadcast [text]"
+    text = f"""
+🔐 <b>ADMIN PANEL</b>
+
+👥 Users: {s['users']} | 👥 Invites: {s['total_invites']}
+⭐ Stars: {format_stars(s['stars'])} | 👑 VIP: {s['vip']}
+💰 Spent: {format_stars(s['spent'])}⭐ | 🛍 Purchases: {s['purchases']}
+
+⚙️ /addstars [id] [miqdor]
+/ban [id] | /unban [id]
+/search [id/username]
+/broadcast [matn]
+"""
     bot.send_message(m.chat.id, add_footer(text))
 
 @bot.message_handler(commands=["addstars"])
@@ -576,9 +675,9 @@ def search_cmd(m):
         results = db.search_user(query)
         if results:
             text = "🔍 <b>Qidiruv:</b>\n\n"
-            for uid, un, nm, inv, st, vip in results[:10]:
+            for uid, un, nm, inv, st, vip, streak in results[:10]:
                 user = f"@{un}" if un else nm
-                text += f"🆔 {uid} | {user} {'👑' if vip else ''}\n👥{inv} ⭐{format_stars(st)}\n\n"
+                text += f"🆔 {uid} | {user} {'👑' if vip else ''}\n👥{inv} ⭐{format_stars(st)} 🔥{streak}\n\n"
             bot.reply_to(m, text)
         else:
             bot.reply_to(m, "❌ Topilmadi!")
@@ -595,7 +694,7 @@ def broadcast_cmd(m):
         sent = 0
         for uid in users:
             try:
-                bot.send_message(uid, add_footer(f"📢 <b>E'LON</b>\n\n{text}"))
+                bot.send_message(uid, f"📢 <b>E'LON</b>\n\n{text}\n\n🔗 @{BOT_USERNAME}")
                 sent += 1
                 time.sleep(0.1)
             except:
@@ -614,36 +713,27 @@ def stats_cmd(m):
 @bot.message_handler(commands=["daily"])
 def daily_cmd(m):
     uid = m.from_user.id
-    ok, ns, bonus, streak = db.give_daily_bonus(uid)
+    ok, ns, bonus, streak, extra = db.give_daily_bonus(uid)
     if ok:
-        bot.reply_to(m, add_footer(f"🎁 <b>KUNLIK BONUS</b>\n\n+{bonus}⭐!\nJami: {format_stars(ns)}⭐\n🔥 Streak: {streak} kun"))
+        bot.reply_to(m, add_footer(f"🎁 +{bonus}⭐!\nJami: {format_stars(ns)}⭐\n🔥 Streak: {streak} kun"))
     else:
-        bot.reply_to(m, "❌ Bugun olgansiz! Ertaga keling.")
+        bot.reply_to(m, "❌ Bugun olgansiz!")
 
 @bot.message_handler(commands=["link"])
 def link_cmd(m):
     link = get_invite_link(m.from_user.id)
-    bot.reply_to(m, add_footer(f"🔗 <b>TAKLIF LINKI</b>\n\n<code>{link}</code>\n\n📢 Guruh: {GROUP_LINK}"))
+    bot.reply_to(m, add_footer(f"🔗 <code>{link}</code>\n\n📢 Guruh: {GROUP_LINK}"))
 
 @bot.message_handler(commands=["help"])
 def help_cmd(m):
     text = f"""
 🤖 <b>{BOT_USERNAME}</b>
 
-📌 <b>Buyruqlar:</b>
-/start - Boshlash
-/stats - Statistika
-/daily - Bonus (+{DAILY_BONUS}⭐)
-/link - Taklif linki
-/help - Yordam
+/start | /stats | /daily | /link | /help
 
-👥 Yulduz olish:
-• Guruhga odam qo'shing
-• Do'stlarni taklif qiling
-• Har kuni bonus oling
-• 7 kun = +0.5⭐ bonus
-
-🛍 Do'kondan sovg'alar oling!
+👥 2 ta taklif = 1⭐
+🎁 Kunlik bonus: +{DAILY_BONUS}⭐
+🔥 7 kun = +0.5⭐
 
 📢 Guruh: {GROUP_LINK}
 🎵 Musiqa: {ADS_BOT}
@@ -661,13 +751,13 @@ def auto_ad_sender():
                     markup = types.InlineKeyboardMarkup()
                     markup.add(types.InlineKeyboardButton("🛒 Do'kon", callback_data="shop"), types.InlineKeyboardButton("👥 Guruh", url=GROUP_LINK))
                     try:
-                        bot.send_photo(uid, gift['photo'], caption=f"🎁 <b>{gift['emoji']} {gift['name']}</b>\n📝 {gift['desc']}\n\n⭐ Do'kondan oling!\n👥 Odam qo'shing!\n\n🔗 @{BOT_USERNAME}", reply_markup=markup)
+                        bot.send_photo(uid, gift['photo'], caption=f"🎁 <b>{gift['name']}</b>\n📝 {gift['desc']}\n\n⭐ Do'kondan oling!\n👥 Odam qo'shing!\n\n🔗 @{BOT_USERNAME}", reply_markup=markup)
                         db.update_last_ad(uid)
                     except:
                         pass
                     time.sleep(1)
-        except Exception as e:
-            logger.error(f"Ad error: {e}")
+        except:
+            pass
         time.sleep(172800)
 
 def daily_reminder():
@@ -680,15 +770,14 @@ def daily_reminder():
                     u = db.get(uid)
                     if u["last_daily"]:
                         try:
-                            last = datetime.fromisoformat(u["last_daily"])
-                            if last.date() == now.date():
+                            if datetime.fromisoformat(u["last_daily"]).date() == now.date():
                                 continue
                         except:
                             pass
                     try:
                         markup = types.InlineKeyboardMarkup()
-                        markup.add(types.InlineKeyboardButton(f"🎁 +{DAILY_BONUS}⭐ BONUS", callback_data="daily"))
-                        bot.send_message(uid, f"⏰ <b>BONUS ESKARTMA!</b>\n\n🎁 Kunlik bonus: {DAILY_BONUS}⭐\n🔥 Streak: {u['streak']} kun\n\nHoziroq oling!", reply_markup=markup)
+                        markup.add(types.InlineKeyboardButton(f"🎁 +{DAILY_BONUS}⭐", callback_data="daily"))
+                        bot.send_message(uid, f"⏰ Bonus: {DAILY_BONUS}⭐\n🔥 Streak: {u['streak']} kun", reply_markup=markup)
                     except:
                         pass
                     time.sleep(1)
@@ -700,7 +789,8 @@ def daily_reminder():
 if __name__ == "__main__":
     print("=" * 50)
     print("🚀 STARS BOT ISHGA TUSHIRILDI")
-    print(f"💰 Kunlik bonus: {DAILY_BONUS}⭐")
+    print(f"💰 Bonus: {DAILY_BONUS}⭐/kun")
+    print(f"👤 Admin: {ADMIN_USERNAME}")
     print("=" * 50)
     
     try:
@@ -720,8 +810,6 @@ if __name__ == "__main__":
             break
         except Exception as e:
             if "409" in str(e):
-                print("⚠️ 409 - qayta urinish...")
                 time.sleep(15)
             else:
-                print(f"❌ Xato: {str(e)[:80]}")
                 time.sleep(5)
