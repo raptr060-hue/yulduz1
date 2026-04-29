@@ -28,7 +28,7 @@ REQUIRED_CHANNELS = [
 ]
 GROUP_ID = -1002449896845
 GROUP_LINK = "https://t.me/Stars_2_odam_1stars"
-DAILY_BONUS = 0.25  # Har kuni 0.25 yulduz
+DAILY_BONUS = 0.25
 
 # ================= REKLAMA =================
 ADS_BOT = "@zurnavolarbot"
@@ -36,25 +36,16 @@ ADS_MESSAGES = [
     f"🎵 {ADS_BOT} - Eng zo'r musiqa boti!",
     f"🔥 {ADS_BOT} - Sevimli qo'shiqlaringiz!",
     f"🎶 {ADS_BOT} - Musiqa dunyosi!",
-    f"💃 {ADS_BOT} - Raqsga tushing!",
-    f"🎧 {ADS_BOT} - Hit qo'shiqlar!"
 ]
 
-# ================= MOTIVATSIYA =================
 MOTIVATIONS = [
     "🔥 Siz zo'rsiz! Davom eting!",
     "💪 Har bir taklif - yulduz sari qadam!",
     "⭐ Yulduzlar sizni kutmoqda!",
     "🚀 Oldinga, lider bo'ling!",
     "👑 Siz eng yaxshisisiz!",
-    "🎯 Maqsad sari intiling!",
-    "💎 Katta sovg'alar kutyapti!",
-    "🌟 Yulduzlar soni oshmoqda!",
-    "🏆 Chempion bo'ling!",
-    "⚡ Kuch sizda!"
 ]
 
-# Sovg'a reklamalari (48 soatda yuboriladi)
 GIFT_ADS = [
     {"emoji": "🧸", "name": "Ayiqcha", "desc": "Do'stingizga yoqimli sovg'a!", "photo": "https://i.imgur.com/5f2vL8K.jpg"},
     {"emoji": "🌹", "name": "Atirgul", "desc": "Romantik sovg'a!", "photo": "https://i.imgur.com/7zK9pQm.jpg"},
@@ -62,10 +53,8 @@ GIFT_ADS = [
     {"emoji": "🎂", "name": "Tort", "desc": "Shirin sovg'a!", "photo": "https://i.imgur.com/9pL2mNx.jpg"},
 ]
 
-# ================= BOT INIT =================
+# ================= BOT =================
 bot = telebot.TeleBot(API_TOKEN, parse_mode="HTML", threaded=False)
-
-# ================= LOGGING =================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("BOT")
 
@@ -114,29 +103,15 @@ class DB:
 
     def create_user(self, uid, username, name):
         with lock:
-            self.cur.execute(
-                "INSERT OR IGNORE INTO users(user_id, username, first_name) VALUES(?,?,?)", 
-                (uid, username, name)
-            )
+            self.cur.execute("INSERT OR IGNORE INTO users(user_id, username, first_name) VALUES(?,?,?)", (uid, username, name))
             self.conn.commit()
 
     def get(self, uid):
         with lock:
-            self.cur.execute(
-                "SELECT invites, stars, vip, total_spent, last_daily, last_ad, daily_streak FROM users WHERE user_id=?", 
-                (uid,)
-            )
+            self.cur.execute("SELECT invites, stars, vip, total_spent, last_daily, last_ad, daily_streak FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
             if row:
-                return {
-                    "invites": row[0] or 0,
-                    "stars": float(row[1] if row[1] else 0),
-                    "vip": row[2] or 0,
-                    "spent": float(row[3] if row[3] else 0),
-                    "last_daily": row[4],
-                    "last_ad": row[5],
-                    "streak": row[6] or 0
-                }
+                return {"invites": row[0] or 0, "stars": float(row[1] or 0), "vip": row[2] or 0, "spent": float(row[3] or 0), "last_daily": row[4], "last_ad": row[5], "streak": row[6] or 0}
             return {"invites": 0, "stars": 0.0, "vip": 0, "spent": 0.0, "last_daily": None, "last_ad": None, "streak": 0}
 
     def add_invite(self, uid):
@@ -144,7 +119,7 @@ class DB:
             self.cur.execute("UPDATE users SET invites = invites + 1 WHERE user_id=?", (uid,))
             self.cur.execute("SELECT invites FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
-            invites = row[0] if row else 0
+            invites = row[0] or 0
             stars = invites / 2.0
             self.cur.execute("UPDATE users SET stars=? WHERE user_id=?", (stars, uid))
             self.conn.commit()
@@ -152,38 +127,26 @@ class DB:
 
     def add_history(self, inviter_id, invited_id, invited_name):
         with lock:
-            self.cur.execute(
-                "INSERT INTO invite_history(inviter_id, invited_id, invited_name) VALUES(?,?,?)", 
-                (inviter_id, invited_id, invited_name)
-            )
+            self.cur.execute("INSERT INTO invite_history(inviter_id, invited_id, invited_name) VALUES(?,?,?)", (inviter_id, invited_id, invited_name))
             self.conn.commit()
 
     def add_purchase_history(self, uid, item_name, price):
         with lock:
-            self.cur.execute(
-                "INSERT INTO purchase_history(user_id, item_name, price) VALUES(?,?,?)",
-                (uid, item_name, price)
-            )
+            self.cur.execute("INSERT INTO purchase_history(user_id, item_name, price) VALUES(?,?,?)", (uid, item_name, price))
             self.conn.commit()
 
     def check_duplicate(self, inviter_id, invited_id):
         with lock:
-            self.cur.execute(
-                "SELECT COUNT(*) FROM invite_history WHERE inviter_id=? AND invited_id=?", 
-                (inviter_id, invited_id)
-            )
+            self.cur.execute("SELECT COUNT(*) FROM invite_history WHERE inviter_id=? AND invited_id=?", (inviter_id, invited_id))
             return self.cur.fetchone()[0] > 0
 
     def sub_star(self, uid, amount):
         with lock:
             self.cur.execute("SELECT stars FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
-            current = float(row[0] if row[0] else 0)
+            current = float(row[0] or 0)
             new_stars = max(0.0, current - amount)
-            self.cur.execute(
-                "UPDATE users SET stars=?, total_spent=total_spent+? WHERE user_id=?", 
-                (new_stars, amount, uid)
-            )
+            self.cur.execute("UPDATE users SET stars=?, total_spent=total_spent+? WHERE user_id=?", (new_stars, amount, uid))
             self.conn.commit()
             return new_stars
 
@@ -191,15 +154,12 @@ class DB:
         with lock:
             self.cur.execute("SELECT invites FROM users WHERE user_id=?", (uid,))
             row = self.cur.fetchone()
-            current_invites = row[0] if row else 0
-            new_invites = current_invites + int(amount * 2)
-            new_stars = new_invites / 2.0
-            self.cur.execute(
-                "UPDATE users SET invites=?, stars=? WHERE user_id=?", 
-                (new_invites, new_stars, uid)
-            )
+            ci = row[0] or 0
+            ni = ci + int(amount * 2)
+            ns = ni / 2.0
+            self.cur.execute("UPDATE users SET invites=?, stars=? WHERE user_id=?", (ni, ns, uid))
             self.conn.commit()
-            return new_stars
+            return ns
 
     def give_daily_bonus(self, uid):
         with lock:
@@ -207,17 +167,14 @@ class DB:
             row = self.cur.fetchone()
             if row:
                 last_daily = row[0]
-                current_stars = float(row[1] if row[1] else 0)
+                cs = float(row[1] or 0)
                 streak = row[2] or 0
                 now = datetime.now()
-                
                 if last_daily:
                     try:
                         last = datetime.fromisoformat(last_daily)
                         if now.date() == last.date():
-                            return False, current_stars, 0, streak
-                        
-                        # Ketma-ket kunlarni hisoblash
+                            return False, cs, 0, streak
                         if (now.date() - last.date()).days == 1:
                             streak += 1
                         else:
@@ -226,19 +183,13 @@ class DB:
                         streak = 1
                 else:
                     streak = 1
-                
-                # Bonus: 0.25 + streak bonus (har 7 kunda qo'shimcha 0.5)
                 bonus = DAILY_BONUS
                 if streak > 0 and streak % 7 == 0:
-                    bonus += 0.5  # Haftalik bonus
-                
-                new_stars = current_stars + bonus
-                self.cur.execute(
-                    "UPDATE users SET stars=?, last_daily=?, daily_streak=? WHERE user_id=?", 
-                    (new_stars, now.isoformat(), streak, uid)
-                )
+                    bonus += 0.5
+                ns = cs + bonus
+                self.cur.execute("UPDATE users SET stars=?, last_daily=?, daily_streak=? WHERE user_id=?", (ns, now.isoformat(), streak, uid))
                 self.conn.commit()
-                return True, new_stars, bonus, streak
+                return True, ns, bonus, streak
             return False, 0.0, 0, 0
 
     def can_send_ad(self, uid, hours=48):
@@ -266,26 +217,17 @@ class DB:
 
     def get_top(self, limit=10):
         with lock:
-            self.cur.execute(
-                "SELECT username, first_name, invites, stars, vip FROM users WHERE is_banned=0 ORDER BY invites DESC LIMIT ?", 
-                (limit,)
-            )
+            self.cur.execute("SELECT username, first_name, invites, stars, vip FROM users WHERE is_banned=0 ORDER BY invites DESC LIMIT ?", (limit,))
             return self.cur.fetchall()
 
     def get_history(self, uid):
         with lock:
-            self.cur.execute(
-                "SELECT invited_id, invited_name, created_at FROM invite_history WHERE inviter_id=? ORDER BY created_at DESC LIMIT 20", 
-                (uid,)
-            )
+            self.cur.execute("SELECT invited_id, invited_name, created_at FROM invite_history WHERE inviter_id=? ORDER BY created_at DESC LIMIT 20", (uid,))
             return self.cur.fetchall()
 
     def get_purchase_history(self, uid):
         with lock:
-            self.cur.execute(
-                "SELECT item_name, price, created_at FROM purchase_history WHERE user_id=? ORDER BY created_at DESC LIMIT 10",
-                (uid,)
-            )
+            self.cur.execute("SELECT item_name, price, created_at FROM purchase_history WHERE user_id=? ORDER BY created_at DESC LIMIT 10", (uid,))
             return self.cur.fetchall()
 
     def check_ban(self, uid):
@@ -306,10 +248,7 @@ class DB:
 
     def search_user(self, query):
         with lock:
-            self.cur.execute(
-                "SELECT user_id, username, first_name, invites, stars, vip FROM users WHERE user_id=? OR username LIKE ? OR first_name LIKE ?",
-                (query, f"%{query}%", f"%{query}%")
-            )
+            self.cur.execute("SELECT user_id, username, first_name, invites, stars, vip FROM users WHERE user_id=? OR username LIKE ? OR first_name LIKE ?", (query, f"%{query}%", f"%{query}%"))
             return self.cur.fetchall()
 
     def get_stats(self):
@@ -320,11 +259,11 @@ class DB:
             self.cur.execute("SELECT SUM(invites) FROM users")
             stats["invites"] = self.cur.fetchone()[0] or 0
             self.cur.execute("SELECT SUM(stars) FROM users")
-            stats["stars"] = float(self.cur.fetchone()[0] if self.cur.fetchone() else 0)
+            stats["stars"] = float(self.cur.fetchone()[0] or 0)
             self.cur.execute("SELECT COUNT(*) FROM users WHERE vip=1")
             stats["vip"] = self.cur.fetchone()[0]
             self.cur.execute("SELECT SUM(total_spent) FROM users")
-            stats["spent"] = float(self.cur.fetchone()[0] if self.cur.fetchone() else 0)
+            stats["spent"] = float(self.cur.fetchone()[0] or 0)
             return stats
 
     def get_all_users_for_ad(self):
@@ -338,13 +277,13 @@ db = DB()
 SHOP = {
     15: {"name": "❤️ Heart Gift", "emoji": "❤️", "photo": "https://i.imgur.com/8Yp9Z2M.jpg", "desc": "Chiroyli yurak sovg'asi"},
     25: {"name": "🎁 Gift Box", "emoji": "🎁", "photo": "https://i.imgur.com/3vX9pLm.jpg", "desc": "Sirli sovg'a qutisi"},
-    50: {"name": "🎂 Birthday Cake", "emoji": "🎂", "photo": "https://i.imgur.com/9pL2mNx.jpg", "desc": "Tug'ilgan kun torti + VIP"},
+    50: {"name": "🎂 Birthday Cake", "emoji": "🎂", "photo": "https://i.imgur.com/9pL2mNx.jpg", "desc": "Tort + VIP"},
     100: {"name": "🏆 Golden Trophy", "emoji": "🏆", "photo": "https://i.imgur.com/vL9pQmN.jpg", "desc": "Oltin kubok + VIP"},
     200: {"name": "💎 Diamond", "emoji": "💎", "photo": "https://i.imgur.com/kP8mNxZ.jpg", "desc": "Olmos + VIP"},
     500: {"name": "👑 Crown", "emoji": "👑", "photo": "https://i.imgur.com/XkP5vRt.jpg", "desc": "Qirol toji + VIP"},
 }
 
-# ================= OBUNA TEKSHIRISH =================
+# ================= YORDAMCHI =================
 def check_sub(uid):
     not_sub = []
     for ch in REQUIRED_CHANNELS:
@@ -356,15 +295,12 @@ def check_sub(uid):
             pass
     return not_sub
 
-# ================= YORDAMCHI FUNKSIYALAR =================
 def add_footer(text):
-    """Har bir xabarga reklama va motivatsiya qo'shish"""
     ad = random.choice(ADS_MESSAGES)
     mot = random.choice(MOTIVATIONS)
     return f"{text}\n\n{'─' * 20}\n💡 <i>{mot}</i>\n{ad}"
 
 def format_stars(stars):
-    """Yulduzlarni chiroyli ko'rsatish"""
     if stars == int(stars):
         return str(int(stars))
     return f"{stars:.2f}"
@@ -376,20 +312,18 @@ def get_invite_link(uid):
 @bot.message_handler(commands=["start"])
 def start(m):
     uid = m.from_user.id
-    
     if db.check_ban(uid):
-        return bot.send_message(m.chat.id, "❌ Siz bloklangansiz!")
+        return bot.send_message(m.chat.id, "❌ Bloklangansiz!")
     
-    # Referrer
     if m.text and len(m.text.split()) > 1:
         try:
-            referrer_id = int(m.text.split()[1])
-            if referrer_id != uid and not db.check_duplicate(referrer_id, uid):
-                db.create_user(referrer_id, None, "Foydalanuvchi")
-                db.add_history(referrer_id, uid, m.from_user.first_name)
-                inv, st = db.add_invite(referrer_id)
+            ref = int(m.text.split()[1])
+            if ref != uid and not db.check_duplicate(ref, uid):
+                db.create_user(ref, None, "User")
+                db.add_history(ref, uid, m.from_user.first_name)
+                inv, st = db.add_invite(ref)
                 try:
-                    bot.send_message(referrer_id, add_footer(f"🎉 {m.from_user.first_name} linkingiz orqali qo'shildi!\n👥 Taklif: {inv}\n⭐ Yulduz: {format_stars(st)}"))
+                    bot.send_message(ref, f"🎉 {m.from_user.first_name} qo'shildi!\n👥 Taklif: {inv}\n⭐ Yulduz: {format_stars(st)}")
                 except:
                     pass
         except:
@@ -399,95 +333,53 @@ def start(m):
     if not_sub:
         markup = types.InlineKeyboardMarkup(row_width=1)
         for ch in not_sub:
-            markup.add(types.InlineKeyboardButton(f"{ch['name']} - OBUNA BO'LISH", url=ch['url']))
+            markup.add(types.InlineKeyboardButton(f"{ch['name']} - OBUNA", url=ch['url']))
         markup.add(types.InlineKeyboardButton("✅ OBUNA BO'LDIM", callback_data="check_sub"))
         channels = "\n".join([f"• {ch['name']}: {ch['username']}" for ch in not_sub])
-        return bot.send_message(m.chat.id, f"❌ <b>OBUNA TEKSHIRUVI</b>\n\n{channels}\n\nObuna bo'lib, tugmani bosing!", reply_markup=markup)
+        return bot.send_message(m.chat.id, f"❌ Obuna bo'ling:\n\n{channels}", reply_markup=markup)
     
     db.create_user(uid, m.from_user.username, m.from_user.first_name)
-    user = db.get(uid)
-    
-    vip_status = "✅ HA" if user["vip"] else "❌ YO'Q"
-    streak_bonus = "🔥" * min(user["streak"], 10) if user["streak"] > 0 else ""
+    u = db.get(uid)
+    vip_status = "✅ HA" if u["vip"] else "❌ YO'Q"
     
     markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("🛒 DO'KON", callback_data="shop"),
-        types.InlineKeyboardButton(f"🎁 BONUS (+{DAILY_BONUS}⭐)", callback_data="daily")
-    )
-    markup.add(
-        types.InlineKeyboardButton("🏆 TOP", callback_data="top"),
-        types.InlineKeyboardButton("📊 PROFIL", callback_data="profile")
-    )
-    markup.add(types.InlineKeyboardButton("🔗 TAKLIF LINKI", callback_data="link"))
-    markup.add(types.InlineKeyboardButton("📜 XARIDLAR", callback_data="purchases"))
+    markup.add(types.InlineKeyboardButton("🛒 DO'KON", callback_data="shop"), types.InlineKeyboardButton(f"🎁 +{DAILY_BONUS}⭐ BONUS", callback_data="daily"))
+    markup.add(types.InlineKeyboardButton("🏆 TOP", callback_data="top"), types.InlineKeyboardButton("📊 PROFIL", callback_data="profile"))
+    markup.add(types.InlineKeyboardButton("🔗 LINK", callback_data="link"), types.InlineKeyboardButton("📜 XARIDLAR", callback_data="purchases"))
     
     text = f"""
-╔══════════════════════╗
-║   🌟 <b>STARS BOT</b> 🌟   ║
-╚══════════════════════╝
+🌟 <b>STARS BOT</b> 🌟
 
 👤 <b>{m.from_user.first_name}</b>
-{'👑 VIP FOYDALANUVCHI' if user['vip'] else ''}
-
-━━━━━━━━━━━━━━━━━━━━
-📊 <b>STATISTIKA</b>
-━━━━━━━━━━━━━━━━━━━━
-👥 Takliflar: <b>{user['invites']}</b> ta
-⭐ Yulduzlar: <b>{format_stars(user['stars'])}</b>
+👥 Takliflar: <b>{u['invites']}</b> ta
+⭐ Yulduzlar: <b>{format_stars(u['stars'])}</b>
 👑 VIP: <b>{vip_status}</b>
-💰 Sarflangan: {format_stars(user['spent'])}⭐
-🔥 Ketma-ket: {user['streak']} kun {streak_bonus}
+🔥 Streak: {u['streak']} kun
 
-━━━━━━━━━━━━━━━━━━━━
-🎯 <i>2 ta taklif = 1⭐ yulduz</i>
-📢 Har kuni +{DAILY_BONUS}⭐ bonus!
-🎁 Sovg'alar do'konida xarid qiling!
-━━━━━━━━━━━━━━━━━━━━
+🎯 <i>2 ta taklif = 1⭐ | Bonus: +{DAILY_BONUS}⭐/kun</i>
 """
-    text = add_footer(text)
-    bot.send_message(m.chat.id, text, reply_markup=markup)
+    bot.send_message(m.chat.id, add_footer(text), reply_markup=markup)
 
-# ================= GURUHGA QO'SHISH =================
+# ================= GURUH =================
 @bot.message_handler(content_types=['new_chat_members'])
 def new_members(message):
     if message.chat.id != GROUP_ID:
         return
-    
     for member in message.new_chat_members:
         if member.is_bot:
             continue
-        
         inviter_id = message.from_user.id
         invited_id = member.id
-        
-        if inviter_id == invited_id:
+        if inviter_id == invited_id or db.check_duplicate(inviter_id, invited_id):
             continue
-        
-        if db.check_duplicate(inviter_id, invited_id):
-            continue
-        
         db.create_user(inviter_id, message.from_user.username, message.from_user.first_name)
         db.create_user(invited_id, member.username, member.first_name)
         db.add_history(inviter_id, invited_id, member.first_name)
         inv, st = db.add_invite(inviter_id)
-        
-        text = f"""
-🎉 <b>YANGI ISHTIROKCHI!</b>
-
-👤 <b>{member.first_name}</b> guruhga qo'shildi!
-👥 Taklif qilgan: <b>{message.from_user.first_name}</b>
-⭐ +1 taklif (Jami: {inv} ta, {format_stars(st)} yulduz)
-
-💡 <i>{random.choice(MOTIVATIONS)}</i>
-
-🔗 @{BOT_USERNAME}
-"""
         try:
-            bot.send_message(message.chat.id, text)
+            bot.send_message(message.chat.id, f"🎉 <b>{member.first_name}</b> qo'shildi!\n👤 {message.from_user.first_name} +1⭐\n📊 Jami: {inv} ta, {format_stars(st)} yulduz")
         except:
             pass
-        
         try:
             bot.send_message(inviter_id, add_footer(f"✅ {member.first_name} qo'shildi!\n👥 Taklif: {inv}\n⭐ Yulduz: {format_stars(st)}"))
         except:
@@ -502,8 +394,7 @@ def callback(call):
     if data == "check_sub":
         not_sub = check_sub(uid)
         if not_sub:
-            channels = "\n".join([f"• {ch['name']}" for ch in not_sub])
-            bot.answer_callback_query(call.id, f"❌ Obuna bo'ling!\n{channels}", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Obuna bo'ling!", show_alert=True)
         else:
             db.create_user(uid, call.from_user.username, call.from_user.first_name)
             try:
@@ -515,68 +406,44 @@ def callback(call):
         return
     
     if data == "daily":
-        success, new_stars, bonus, streak = db.give_daily_bonus(uid)
-        if success:
+        ok, ns, bonus, streak = db.give_daily_bonus(uid)
+        if ok:
             extra = ""
-            if streak > 0 and streak % 7 == 0:
-                extra = "\n\n🎉 <b>HAFTALIK BONUS!</b> +0.5⭐ qo'shimcha!"
-            
-            text = f"""
-🎁 <b>KUNLIK BONUS</b>
-
-✨ Sizga <b>+{bonus}⭐</b> berildi!
-💰 Jami yulduz: <b>{format_stars(new_stars)}</b>
-🔥 Ketma-ket: <b>{streak}</b> kun{extra}
-
-🗓 Ertaga yana keling!
-Har kuni bonus oling!
-"""
-            text = add_footer(text)
-            bot.send_message(call.message.chat.id, text)
+            if streak % 7 == 0 and streak > 0:
+                extra = "\n🎉 <b>HAFTALIK BONUS!</b> +0.5⭐"
+            text = f"🎁 <b>KUNLIK BONUS</b>\n\n✨ +{bonus}⭐ berildi!\n💰 Jami: <b>{format_stars(ns)}</b>\n🔥 Streak: <b>{streak}</b> kun{extra}\n\n🗓 Ertaga yana keling!"
+            bot.send_message(call.message.chat.id, add_footer(text))
             bot.answer_callback_query(call.id, f"✅ +{bonus}⭐", show_alert=True)
         else:
-            bot.answer_callback_query(call.id, "❌ Bugun bonus olgansiz!\nErtaga keling! 🗓", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Bugun olgansiz!\nErtaga keling! 🗓", show_alert=True)
         return
     
     if data == "shop":
-        user = db.get(uid)
+        u = db.get(uid)
         markup = types.InlineKeyboardMarkup(row_width=2)
         for price, item in SHOP.items():
-            can_buy = "✅" if user["stars"] >= price else "🔒"
-            markup.add(types.InlineKeyboardButton(f"{can_buy} {item['emoji']} {price}⭐", callback_data=f"buy_{price}"))
-        
-        text = f"""
-🛒 <b>SOVG'ALAR DO'KONI</b>
-
-⭐ Balans: <b>{format_stars(user['stars'])}</b>
-👥 Taklif: {user['invites']} ta
-
-✅ - Siz uchun mavjud
-🔒 - Yulduz yetarli emas
-
-Kerakli sovg'ani tanlang:
-"""
-        text = add_footer(text)
-        bot.send_message(call.message.chat.id, text, reply_markup=markup)
+            can = "✅" if u["stars"] >= price else "🔒"
+            markup.add(types.InlineKeyboardButton(f"{can} {item['emoji']} {price}⭐", callback_data=f"buy_{price}"))
+        text = f"🛒 <b>DO'KON</b>\n\n⭐ Balans: <b>{format_stars(u['stars'])}</b>\n\n✅ - Mavjud | 🔒 - Yulduz yetmaydi"
+        bot.send_message(call.message.chat.id, add_footer(text), reply_markup=markup)
     
     elif data == "top":
         top = db.get_top(10)
         if top:
-            text = "🏆 <b>TOP 10 TAKLIFCHILAR</b>\n\n"
+            text = "🏆 <b>TOP 10</b>\n\n"
             for i, (u, n, inv, st, v) in enumerate(top, 1):
                 user = f"@{u}" if u else n
                 medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"{i}️⃣"
                 vip_mark = " 👑" if v else ""
-                text += f"{medal} <b>{user}</b>{vip_mark}\n   👥 {inv} ta | ⭐ {format_stars(st)}\n\n"
+                text += f"{medal} <b>{user}</b>{vip_mark}\n   👥 {inv} | ⭐ {format_stars(st)}\n\n"
             bot.send_message(call.message.chat.id, add_footer(text))
         else:
             bot.send_message(call.message.chat.id, "❌ Hali top yo'q!")
     
     elif data == "profile":
-        user = db.get(uid)
-        vip_status = "✅ HA" if user["vip"] else "❌ YO'Q"
-        history = db.get_history(uid)
-        last_5 = history[:5]
+        u = db.get(uid)
+        vip_status = "✅ HA" if u["vip"] else "❌ YO'Q"
+        history = db.get_history(uid)[:5]
         
         text = f"""
 📊 <b>TO'LIQ PROFIL</b>
@@ -584,37 +451,35 @@ Kerakli sovg'ani tanlang:
 👤 {call.from_user.first_name}
 🆔 <code>{uid}</code>
 👑 VIP: <b>{vip_status}</b>
-🔥 Streak: {user['streak']} kun
+🔥 Streak: <b>{u['streak']}</b> kun
 
 ━━━━━━━━━━━━━━━━━━━━
-👥 Takliflar: <b>{user['invites']}</b> ta
-⭐ Yulduzlar: <b>{format_stars(user['stars'])}</b>
-💰 Sarflangan: {format_stars(user['spent'])}⭐
+👥 Takliflar: <b>{u['invites']}</b> ta
+⭐ Yulduzlar: <b>{format_stars(u['stars'])}</b>
+💰 Sarflangan: {format_stars(u['spent'])}⭐
 ━━━━━━━━━━━━━━━━━━━━
 
 📜 <b>Oxirgi takliflar:</b>
 """
-        if last_5:
-            for iid, name, dt in last_5:
+        if history:
+            for iid, name, dt in history:
                 text += f"• {name} ({dt[:10]})\n"
         else:
             text += "Hali taklif yo'q\n"
         
+        text += f"""
+━━━━━━━━━━━━━━━━━━━━
+🎯 <b>QANDAY YULDUZ OLISH:</b>
+• Guruhga odam qo'shing
+• Do'stlaringizni taklif qiling
+• Har kuni bonus oling (+{DAILY_BONUS}⭐)
+• 7 kun ketma-ket = +0.5⭐
+"""
         bot.send_message(call.message.chat.id, add_footer(text))
     
     elif data == "link":
         link = get_invite_link(uid)
-        text = f"""
-🔗 <b>TAKLIF LINKINGIZ</b>
-
-<code>{link}</code>
-
-📤 Do'stlaringizga yuboring!
-👥 Har 2 ta do'st = 1⭐
-🎁 Sovg'alar do'konida xarid qiling!
-
-📢 Guruh: {GROUP_LINK}
-"""
+        text = f"🔗 <b>TAKLIF LINKI</b>\n\n<code>{link}</code>\n\n📤 Do'stlarga yuboring!\n👥 2 ta do'st = 1⭐\n📢 Guruh: {GROUP_LINK}"
         bot.send_message(call.message.chat.id, add_footer(text))
     
     elif data == "purchases":
@@ -629,56 +494,26 @@ Kerakli sovg'ani tanlang:
     
     elif data.startswith("buy_"):
         price = int(data.split("_")[1])
-        user = db.get(uid)
+        u = db.get(uid)
         
-        if user["stars"] < price:
-            need = price - user["stars"]
-            bot.answer_callback_query(
-                call.id,
-                f"❌ {format_stars(need)}⭐ yetmaydi!\n\nBor: {format_stars(user['stars'])}⭐\nKerak: {price}⭐",
-                show_alert=True
-            )
+        if u["stars"] < price:
+            need = price - u["stars"]
+            bot.answer_callback_query(call.id, f"❌ {format_stars(need)}⭐ yetmaydi!\n\nBor: {format_stars(u['stars'])}⭐\nKerak: {price}⭐", show_alert=True)
         else:
             item = SHOP[price]
-            new_stars = db.sub_star(uid, price)
+            ns = db.sub_star(uid, price)
             db.add_purchase_history(uid, item['name'], price)
-            
             extra = ""
             if price >= 50:
                 db.grant_vip(uid)
                 extra = "\n\n👑 <b>VIP STATUS BERILDI!</b>"
-            
-            caption = f"""
-✅ <b>XARID MUVAFFAQIYATLI!</b>
-
-{item['emoji']} <b>{item['name']}</b>
-📝 {item['desc']}
-
-💰 Sarflandi: <b>{price}⭐</b>
-⭐ Qoldi: <b>{format_stars(new_stars)}</b>{extra}
-
-🎉 Xaridingiz bilan tabriklaymiz!
-"""
-            caption = add_footer(caption)
-            bot.send_photo(call.message.chat.id, item['photo'], caption=caption)
+            caption = f"✅ <b>{item['emoji']} {item['name']}</b>\n📝 {item['desc']}\n\n💰 Sarflandi: <b>{price}⭐</b>\n⭐ Qoldi: <b>{format_stars(ns)}</b>{extra}"
+            bot.send_photo(call.message.chat.id, item['photo'], caption=add_footer(caption))
             bot.answer_callback_query(call.id, "✅ Xarid qilindi!", show_alert=True)
-            
-            # Guruhga e'lon
             try:
-                group_text = f"""
-🛍 <b>YANGI XARID!</b>
-
-👤 <b>{call.from_user.first_name}</b>
-🎁 {item['emoji']} <b>{item['name']}</b>
-💰 {price}⭐
-
-🔗 @{BOT_USERNAME}
-"""
-                bot.send_message(GROUP_ID, group_text)
+                bot.send_message(GROUP_ID, f"🛍 <b>{call.from_user.first_name}</b> {item['emoji']} <b>{item['name']}</b> ({price}⭐)\n🔗 @{BOT_USERNAME}")
             except:
                 pass
-            
-            # Admin
             try:
                 bot.send_message(ADMIN_ID, f"🛍 {call.from_user.first_name} - {item['name']} ({price}⭐)")
             except:
@@ -691,23 +526,8 @@ Kerakli sovg'ani tanlang:
 def admin_cmd(m):
     if m.from_user.id != ADMIN_ID:
         return
-    stats = db.get_stats()
-    text = f"""
-🔐 <b>ADMIN PANEL</b>
-
-📊 <b>Statistika:</b>
-👥 Users: {stats['users']}
-👥 Invites: {stats['invites']}
-⭐ Stars: {format_stars(stats['stars'])}
-👑 VIP: {stats['vip']}
-💰 Spent: {format_stars(stats['spent'])}⭐
-
-⚙️ <b>Buyruqlar:</b>
-/addstars [id] [miqdor]
-/ban [id] | /unban [id]
-/search [id/username]
-/broadcast [text]
-"""
+    s = db.get_stats()
+    text = f"🔐 <b>ADMIN PANEL</b>\n\n👥 Users: {s['users']}\n👥 Invites: {s['invites']}\n⭐ Stars: {format_stars(s['stars'])}\n👑 VIP: {s['vip']}\n💰 Spent: {format_stars(s['spent'])}⭐\n\n/addstars [id] [miqdor]\n/ban [id] | /unban [id]\n/search [id/username]\n/broadcast [text]"
     bot.send_message(m.chat.id, add_footer(text))
 
 @bot.message_handler(commands=["addstars"])
@@ -716,26 +536,24 @@ def addstars_cmd(m):
         return
     try:
         parts = m.text.split()
-        uid = int(parts[1])
-        amount = float(parts[2])
-        db.create_user(uid, None, "Foydalanuvchi")
-        new_stars = db.add_stars_admin(uid, amount)
-        bot.reply_to(m, f"✅ {uid} ga +{format_stars(amount)}⭐ berildi!\nJami: {format_stars(new_stars)}⭐")
+        uid, amount = int(parts[1]), float(parts[2])
+        db.create_user(uid, None, "User")
+        ns = db.add_stars_admin(uid, amount)
+        bot.reply_to(m, f"✅ {uid} ga +{format_stars(amount)}⭐ berildi!\nJami: {format_stars(ns)}⭐")
         try:
-            bot.send_message(uid, f"🎉 Admin sizga {format_stars(amount)}⭐ berdi!\nJami: {format_stars(new_stars)}⭐")
+            bot.send_message(uid, f"🎉 Admin sizga {format_stars(amount)}⭐ berdi!\nJami: {format_stars(ns)}⭐")
         except:
             pass
     except:
-        bot.reply_to(m, "❌ /addstars [user_id] [miqdor]")
+        bot.reply_to(m, "❌ /addstars [id] [miqdor]")
 
 @bot.message_handler(commands=["ban"])
 def ban_cmd(m):
     if m.from_user.id != ADMIN_ID:
         return
     try:
-        uid = int(m.text.split()[1])
-        db.ban_user(uid)
-        bot.reply_to(m, f"✅ {uid} ban!")
+        db.ban_user(int(m.text.split()[1]))
+        bot.reply_to(m, "✅ Ban!")
     except:
         bot.reply_to(m, "❌ /ban [id]")
 
@@ -744,9 +562,8 @@ def unban_cmd(m):
     if m.from_user.id != ADMIN_ID:
         return
     try:
-        uid = int(m.text.split()[1])
-        db.unban_user(uid)
-        bot.reply_to(m, f"✅ {uid} unban!")
+        db.unban_user(int(m.text.split()[1]))
+        bot.reply_to(m, "✅ Unban!")
     except:
         bot.reply_to(m, "❌ /unban [id]")
 
@@ -758,11 +575,10 @@ def search_cmd(m):
         query = m.text.split(maxsplit=1)[1]
         results = db.search_user(query)
         if results:
-            text = "🔍 <b>Qidiruv natijalari:</b>\n\n"
+            text = "🔍 <b>Qidiruv:</b>\n\n"
             for uid, un, nm, inv, st, vip in results[:10]:
                 user = f"@{un}" if un else nm
-                vip_mark = "👑" if vip else ""
-                text += f"🆔 {uid} | {user} {vip_mark}\n👥{inv} ⭐{format_stars(st)}\n\n"
+                text += f"🆔 {uid} | {user} {'👑' if vip else ''}\n👥{inv} ⭐{format_stars(st)}\n\n"
             bot.reply_to(m, text)
         else:
             bot.reply_to(m, "❌ Topilmadi!")
@@ -790,43 +606,24 @@ def broadcast_cmd(m):
 
 @bot.message_handler(commands=["stats"])
 def stats_cmd(m):
-    uid = m.from_user.id
-    user = db.get(uid)
-    vip_status = "✅ HA" if user["vip"] else "❌ YO'Q"
-    text = f"""
-📊 <b>STATISTIKA</b>
-
-👥 Taklif: {user['invites']}
-⭐ Yulduz: {format_stars(user['stars'])}
-👑 VIP: {vip_status}
-💰 Sarflangan: {format_stars(user['spent'])}⭐
-🔥 Streak: {user['streak']} kun
-"""
+    u = db.get(m.from_user.id)
+    vip_status = "✅ HA" if u["vip"] else "❌ YO'Q"
+    text = f"📊 <b>STATISTIKA</b>\n\n👤 {m.from_user.first_name}\n👥 Taklif: {u['invites']}\n⭐ Yulduz: {format_stars(u['stars'])}\n👑 VIP: {vip_status}\n💰 Sarflangan: {format_stars(u['spent'])}⭐\n🔥 Streak: {u['streak']} kun"
     bot.reply_to(m, add_footer(text))
 
 @bot.message_handler(commands=["daily"])
 def daily_cmd(m):
     uid = m.from_user.id
-    success, new_stars, bonus, streak = db.give_daily_bonus(uid)
-    if success:
-        text = f"🎁 <b>KUNLIK BONUS</b>\n\n+{format_stars(bonus)}⭐ berildi!\nJami: {format_stars(new_stars)}⭐\n🔥 Streak: {streak} kun"
-        bot.reply_to(m, add_footer(text))
+    ok, ns, bonus, streak = db.give_daily_bonus(uid)
+    if ok:
+        bot.reply_to(m, add_footer(f"🎁 <b>KUNLIK BONUS</b>\n\n+{bonus}⭐!\nJami: {format_stars(ns)}⭐\n🔥 Streak: {streak} kun"))
     else:
-        bot.reply_to(m, "❌ Bugun olgansiz! Ertaga keling. 🗓")
+        bot.reply_to(m, "❌ Bugun olgansiz! Ertaga keling.")
 
 @bot.message_handler(commands=["link"])
 def link_cmd(m):
-    uid = m.from_user.id
-    link = get_invite_link(uid)
-    text = f"""
-🔗 <b>TAKLIF LINKI</b>
-
-<code>{link}</code>
-
-👥 Har 2 do'st = 1⭐
-📢 Guruh: {GROUP_LINK}
-"""
-    bot.reply_to(m, add_footer(text))
+    link = get_invite_link(m.from_user.id)
+    bot.reply_to(m, add_footer(f"🔗 <b>TAKLIF LINKI</b>\n\n<code>{link}</code>\n\n📢 Guruh: {GROUP_LINK}"))
 
 @bot.message_handler(commands=["help"])
 def help_cmd(m):
@@ -836,51 +633,35 @@ def help_cmd(m):
 📌 <b>Buyruqlar:</b>
 /start - Boshlash
 /stats - Statistika
-/daily - Kunlik bonus (+{DAILY_BONUS}⭐)
+/daily - Bonus (+{DAILY_BONUS}⭐)
 /link - Taklif linki
 /help - Yordam
 
-👥 <b>Yulduz olish:</b>
+👥 Yulduz olish:
 • Guruhga odam qo'shing
-• Do'stlaringizni taklif qiling
+• Do'stlarni taklif qiling
 • Har kuni bonus oling
-• 7 kun ketma-ket = +0.5⭐
+• 7 kun = +0.5⭐ bonus
 
-🛍 Yulduzlar bilan sovg'alar oling!
+🛍 Do'kondan sovg'alar oling!
 
 📢 Guruh: {GROUP_LINK}
 🎵 Musiqa: {ADS_BOT}
 """
     bot.reply_to(m, text)
 
-# ================= AVTOMATIK XABARLAR =================
+# ================= AVTOMATIK =================
 def auto_ad_sender():
-    """Har 48 soatda sovg'a reklamasi"""
     while True:
         try:
             users = db.get_all_users_for_ad()
             gift = random.choice(GIFT_ADS)
-            
             for uid in users:
                 if db.can_send_ad(uid, 48):
                     markup = types.InlineKeyboardMarkup()
-                    markup.add(types.InlineKeyboardButton("🛒 Do'konga o'tish", callback_data="shop"))
-                    markup.add(types.InlineKeyboardButton("👥 Guruhga qo'shilish", url=GROUP_LINK))
-                    
-                    caption = f"""
-🎁 <b>SIZGA MAXSUS SOVG'A!</b>
-
-{gift['emoji']} <b>{gift['name']}</b>
-📝 {gift['desc']}
-
-⭐ Do'kondan yulduzlar evaziga oling!
-👥 Odam qo'shib yulduz to'plang!
-🎁 Har kuni bonus oling!
-
-🔗 @{BOT_USERNAME}
-"""
+                    markup.add(types.InlineKeyboardButton("🛒 Do'kon", callback_data="shop"), types.InlineKeyboardButton("👥 Guruh", url=GROUP_LINK))
                     try:
-                        bot.send_photo(uid, gift['photo'], caption=caption, reply_markup=markup)
+                        bot.send_photo(uid, gift['photo'], caption=f"🎁 <b>{gift['emoji']} {gift['name']}</b>\n📝 {gift['desc']}\n\n⭐ Do'kondan oling!\n👥 Odam qo'shing!\n\n🔗 @{BOT_USERNAME}", reply_markup=markup)
                         db.update_last_ad(uid)
                     except:
                         pass
@@ -890,32 +671,24 @@ def auto_ad_sender():
         time.sleep(172800)
 
 def daily_reminder():
-    """Har kuni bonus eslatmasi"""
     while True:
         try:
             now = datetime.now()
-            if now.hour in [9, 12, 18, 21]:  # Kun davomida 4 marta
+            if now.hour in [9, 12, 18, 21]:
                 users = db.get_all_users_for_ad()
                 for uid in users:
-                    user = db.get(uid)
-                    if user["last_daily"]:
-                        last = datetime.fromisoformat(user["last_daily"])
-                        if last.date() == now.date():
-                            continue  # Bugun olgan
-                    
+                    u = db.get(uid)
+                    if u["last_daily"]:
+                        try:
+                            last = datetime.fromisoformat(u["last_daily"])
+                            if last.date() == now.date():
+                                continue
+                        except:
+                            pass
                     try:
                         markup = types.InlineKeyboardMarkup()
                         markup.add(types.InlineKeyboardButton(f"🎁 +{DAILY_BONUS}⭐ BONUS", callback_data="daily"))
-                        
-                        text = f"""
-⏰ <b>BONUS ESKARTMA!</b>
-
-🎁 Kunlik bonusingiz {DAILY_BONUS}⭐
-🔥 {user['streak']} kun ketma-ket!
-
-Bonus olish uchun hoziroq bosing!
-"""
-                        bot.send_message(uid, text, reply_markup=markup)
+                        bot.send_message(uid, f"⏰ <b>BONUS ESKARTMA!</b>\n\n🎁 Kunlik bonus: {DAILY_BONUS}⭐\n🔥 Streak: {u['streak']} kun\n\nHoziroq oling!", reply_markup=markup)
                     except:
                         pass
                     time.sleep(1)
@@ -925,13 +698,10 @@ Bonus olish uchun hoziroq bosing!
 
 # ================= MAIN =================
 if __name__ == "__main__":
-    print("=" * 60)
-    print("🌟 STARS BOT v2.0")
-    print(f"👥 Guruh: {GROUP_ID}")
-    print(f"🆔 Admin: {ADMIN_ID}")
-    print(f"🎵 Hamkor: {ADS_BOT}")
+    print("=" * 50)
+    print("🚀 STARS BOT ISHGA TUSHIRILDI")
     print(f"💰 Kunlik bonus: {DAILY_BONUS}⭐")
-    print("=" * 60)
+    print("=" * 50)
     
     try:
         requests.get(f"https://api.telegram.org/bot{API_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
@@ -944,16 +714,14 @@ if __name__ == "__main__":
     
     while True:
         try:
-            print("♻️ Bot ishlamoqda...")
             bot.infinity_polling(timeout=60, skip_pending=True)
         except KeyboardInterrupt:
             print("👋 To'xtadi")
             break
         except Exception as e:
-            error = str(e)
-            if "409" in error:
+            if "409" in str(e):
                 print("⚠️ 409 - qayta urinish...")
                 time.sleep(15)
             else:
-                print(f"❌ Xato: {error[:80]}")
+                print(f"❌ Xato: {str(e)[:80]}")
                 time.sleep(5)
